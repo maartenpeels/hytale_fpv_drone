@@ -72,17 +72,20 @@ public final class QuadIntegrator {
             throw new IllegalArgumentException("dt must be finite and positive but was " + dt);
         }
 
-        MotorOutputs thrusts = MotorMixer.mix(
-                        input.throttle(),
-                        this.torqueDemand(state.bodyRates().roll(), this.demandedRoll(input),
-                                this.parameters.rollPitchAuthority()),
-                        this.torqueDemand(state.bodyRates().pitch(), this.demandedPitch(input),
-                                this.parameters.rollPitchAuthority()),
-                        this.torqueDemand(state.bodyRates().yaw(), this.demandedYaw(input),
-                                this.parameters.yawAuthority()))
-                .thrusts();
+        BodyRates rates = state.bodyRates();
+        double rollPitchAuthority = this.parameters.rollPitchAuthority();
+        double rollDemand =
+                this.torqueDemand(rates.roll(), this.demandedRoll(input), rollPitchAuthority);
+        double pitchDemand =
+                this.torqueDemand(rates.pitch(), this.demandedPitch(input), rollPitchAuthority);
+        double yawDemand =
+                this.torqueDemand(
+                        rates.yaw(), this.demandedYaw(input), this.parameters.yawAuthority());
 
-        BodyRates nextRates = state.bodyRates().plus(this.angularAcceleration(state, thrusts).scale(dt));
+        MotorThrusts thrusts =
+                MotorMixer.mix(input.throttle(), rollDemand, pitchDemand, yawDemand).thrusts();
+
+        BodyRates nextRates = rates.plus(this.angularAcceleration(state, thrusts).scale(dt));
         // Semi-implicit: attitude turns at the rate the drone has *after* this step's torque, which
         // keeps rotation from lagging a step behind the sticks.
         var nextOrientation = state.orientation().integrate(nextRates.toBodyAxes(), dt);
@@ -101,9 +104,10 @@ public final class QuadIntegrator {
      * gives a realistic terminal velocity and the wall of air a pilot feels at speed; linear is kept
      * for gentle bleed-off when barely moving.
      */
-    private Vec3 linearAcceleration(DroneState state, MotorOutputs thrusts) {
+    private Vec3 linearAcceleration(DroneState state, MotorThrusts thrusts) {
         Vec3 thrust =
-                state.thrustAxis().scale(this.parameters.maxThrustAcceleration() * thrusts.mean());
+                state.thrustAxis()
+                        .scale(this.parameters.maxThrustAcceleration() * thrusts.collective());
         Vec3 gravity = new Vec3(0, -this.parameters.gravity(), 0);
 
         Vec3 velocity = state.velocity();
@@ -125,7 +129,7 @@ public final class QuadIntegrator {
      * near idle — so a roll demand that snaps the drone over at mid throttle merely leans it at
      * idle.
      */
-    private BodyRates angularAcceleration(DroneState state, MotorOutputs thrusts) {
+    private BodyRates angularAcceleration(DroneState state, MotorThrusts thrusts) {
         double rollPitch = this.parameters.rollPitchAuthority();
         BodyRates torque =
                 new BodyRates(

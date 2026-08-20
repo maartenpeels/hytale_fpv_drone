@@ -269,6 +269,26 @@ class QuadIntegratorTest {
         }
 
         @Test
+        void staysStableAtTheCoarsestStepTheConfigCanProduce() {
+            // FpvConfig.physicsSubsteps is a config value, so someone can legitimately set it to 1
+            // and hand the integrator a whole 30 TPS tick. It must degrade in accuracy, not blow up.
+            QuadIntegrator integrator = new QuadIntegrator(QuadParameters.DEFAULT);
+            DroneState state = DroneState.restingAt(Vec3.ZERO);
+
+            for (int i = 0; i < 300; i++) {
+                state = integrator.step(state, new ControlInput(0.8f, 0.9f, -0.7f, 0.5f), 1.0 / 30);
+            }
+
+            // The constructor rejects non-finite state, so reaching here at all proves it held
+            // together; the bounds then check it did not diverge to something absurd.
+            assertTrue(state.position().isFinite(), "position went non-finite");
+            assertTrue(
+                    state.speed() < 1000,
+                    "speed ran away to " + state.speed() + " at one substep per tick");
+            assertEquals(1.0, state.orientation().norm(), 1e-9, "orientation stopped being a rotation");
+        }
+
+        @Test
         void reachesTheSameAttitudeWhateverTheStepSize() {
             QuadIntegrator integrator = new QuadIntegrator(QuadParameters.DEFAULT);
             double seconds = 1.0;

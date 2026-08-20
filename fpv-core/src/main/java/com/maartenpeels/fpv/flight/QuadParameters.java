@@ -73,6 +73,10 @@ public record QuadParameters(
      * <p>The square root is not a fudge: motor thrust goes with the square of the command, so hover
      * lands near a third of stick instead of at {@code 1/thrustToWeight}. That is where a real quad
      * hovers, and it is the single most noticeable throttle-feel detail in the model.
+     *
+     * <p>Returns more than {@code 1} for an airframe whose thrust cannot beat its own weight, which
+     * is honest rather than useful — such a quad simply cannot hover, and clamping would hide that.
+     * Callers turning this into a {@code ControlInput} throttle need to handle the case.
      */
     public double hoverCollective() {
         return Math.sqrt(1.0 / this.thrustToWeight);

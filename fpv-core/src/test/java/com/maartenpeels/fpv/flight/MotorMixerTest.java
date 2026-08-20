@@ -61,8 +61,8 @@ class MotorMixerTest {
             MotorOutputs saturated = MotorMixer.mix(0.5, 1.0, 0, 0);
 
             assertMotors(saturated, 1.0, 0.0, 1.0, 0.0);
-            assertEquals(0.0, saturated.pitchDifferential(), TOLERANCE);
-            assertEquals(0.0, saturated.yawDifferential(), TOLERANCE);
+            assertEquals(0.0, saturated.thrusts().pitchDifferential(), TOLERANCE);
+            assertEquals(0.0, saturated.thrusts().yawDifferential(), TOLERANCE);
         }
 
         @Test
@@ -85,7 +85,7 @@ class MotorMixerTest {
             MotorOutputs atFullThrottle = MotorMixer.mix(1.0, 0.5, 0, 0);
 
             assertMotors(atFullThrottle, 1.0, 0.0, 1.0, 0.0);
-            assertEquals(1.0, atFullThrottle.rollDifferential(), TOLERANCE);
+            assertEquals(1.0, atFullThrottle.thrusts().rollDifferential(), TOLERANCE);
         }
 
         @Test
@@ -93,7 +93,7 @@ class MotorMixerTest {
             MotorOutputs atIdle = MotorMixer.mix(0.0, 0.2, 0, 0);
 
             assertMotors(atIdle, 0.4, 0.0, 0.4, 0.0);
-            assertTrue(atIdle.rollDifferential() > 0);
+            assertTrue(atIdle.thrusts().rollDifferential() > 0);
         }
 
         @Test
