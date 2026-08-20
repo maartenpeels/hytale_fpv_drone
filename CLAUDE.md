@@ -345,3 +345,81 @@ it. Do not construct that layout by hand to satisfy external tooling; point the 
   space. Switch `archiveBaseName` to `mod_id` if that ever causes trouble.
 - No `LICENSE` file, though `mod_license = MIT`.
 - `README.md` is still the unmodified Hytale Plugin Template readme.
+
+---
+
+<!-- BEGIN ai-native-blueprint v0.1.1 (installed 2026-08-20). Team-owned; edit freely. -->
+
+## Feedback loops
+
+Every command below was executed at install time on this repo and passed.
+
+```bash
+./gradlew :fpv-core:test --tests "*ControlInputTest"   # file-scoped: ~1s
+./gradlew :fpv-core:test                               # all core tests
+./gradlew build                                        # full build, ~5s warm
+```
+
+Prefix with `JAVA_HOME=$(/usr/libexec/java_home -v 25)` if the default JDK is older.
+
+No lint or format command exists in this repo — no Spotless, Checkstyle or formatter plugin is
+configured. Do not invent one; add a real plugin first if you want a lint loop.
+
+`./gradlew setupHytaleDev` and `./gradlew runServer` are **not** verified here: the first
+mutates the local Hytale dev environment, the second blocks on a running server.
+
+## Tests
+
+- Runner: JUnit 5, `:fpv-core` only (`:fpv-plugin` has no tests — adapters are verified by flying)
+- Naming: `<ClassUnderTest>Test.java`, mirroring the main package
+- Exemplary test file — copy its conventions (`@Nested` per behaviour group, test names that
+  state the *reason*, e.g. `rejectsNegativeThrottleBecauseThrottleIsUnidirectional`):
+  `fpv-core/src/test/java/com/maartenpeels/fpv/control/ControlInputTest.java`
+
+## Boundaries
+
+**Always** (proceed without asking):
+
+- `fpv-core/src/**` — with a unit test in the same change
+- `fpv-plugin/src/main/java/**` — adapters
+- `docs/plans/**`, `docs/adr/**`
+
+**Ask first:**
+
+- `gradle.properties` — single source of mod identity; changing it moves the jar name, package
+  and manifest
+- `*.gradle.kts` and `settings.gradle.kts` — the build *is* the enforcement mechanism for
+  decision 10
+- `.github/workflows/**`
+- The "Settled decisions" section above — decisions are re-decided out loud, per its own rule
+- `.claude/settings.json`, `.claude/skills/**`
+
+**Never:**
+
+- Add a `com.hypixel.*` import to `:fpv-core` (decision 10 — if you want to, the design is wrong)
+- Hand-edit `fpv-plugin/src/main/resources/manifest.json` — regenerate with
+  `./gradlew updatePluginManifest`
+- Edit anything under `~/.gradle/caches/hytale-decompiled/**` — read-only reference
+- Write to `build/`, `run/`, `server/`, or commit anything from them
+- Push to `main` directly
+- Write a command into this file that you have not executed
+
+## Team tools
+
+- Tracker: GitHub Issues — `gh issue view <n>`, `gh issue create --title <t> --body <b>`,
+  subtasks are separate issues referencing the parent (GitHub has no native subtask)
+- VCS: GitHub — `gh pr create --base <branch> --fill`, `gh pr view <n>`, `gh pr diff <n>`
+- Auth: `gh` keyring, account `maartenpeels2` (scopes `repo`, `read:org`, `gist`); git over SSH
+- No Jira in this project — `jira` is on PATH for other work; ignore it here
+
+## Git workflow
+
+- Branches: `<type>/<slug>` (`feat/`, `fix/`, `chore/`); never push to `main` directly
+- Worktrees: one per task in `.worktrees/<task-id>` (gitignored), one agent per worktree, run
+  `./gradlew build` at create time to confirm the environment, clean up after merge. The
+  already-checked-out branch counts as the current task's worktree — create new worktrees only
+  for additional parallel tasks. See the `parallel-work` skill.
+- Agent workflow and skills: see `HOW-WE-WORK-WITH-AI.md`
+
+<!-- END ai-native-blueprint -->
+

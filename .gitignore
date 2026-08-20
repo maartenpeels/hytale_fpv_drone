@@ -15,3 +15,8 @@ run/
 # runServer; see CLAUDE.md "How runServer actually works".
 server/
 *.bak
+# Agent worktrees (parallel-work skill)
+.worktrees/
+
+# Agent worktrees (Claude Code isolation)
+.claude/worktrees/
