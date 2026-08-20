@@ -1,0 +1,32 @@
+{
+  "_comment": "Baseline from ai-native-blueprint v0.1.1, extended with the install interview. Team-owned — edit freely. Boundaries in CLAUDE.md are the human-readable source; keep the two in sync.",
+  "_syntax": "Rules are Tool(pattern) with repo-relative glob patterns, e.g. Write(config/**) or Read(**/*secret*). One rule per array entry — no free text.",
+  "permissions": {
+    "deny": [
+      "Read(**/.env*)",
+      "Read(**/*secret*)",
+      "Read(**/*credential*)",
+      "Write(**/.env*)",
+      "Edit(fpv-plugin/src/main/resources/manifest.json)",
+      "Write(fpv-plugin/src/main/resources/manifest.json)",
+      "Edit(build/**)",
+      "Write(build/**)",
+      "Edit(run/**)",
+      "Write(run/**)",
+      "Edit(server/**)",
+      "Write(server/**)"
+    ],
+    "ask": [
+      "Edit(gradle.properties)",
+      "Write(gradle.properties)",
+      "Edit(**/*.gradle.kts)",
+      "Write(**/*.gradle.kts)",
+      "Edit(.github/workflows/**)",
+      "Write(.github/workflows/**)",
+      "Edit(.claude/settings.json)",
+      "Edit(.claude/skills/**)",
+      "Write(.claude/skills/**)",
+      "Bash(git push:*)"
+    ]
+  }
+}

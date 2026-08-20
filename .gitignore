@@ -10,3 +10,13 @@ run/
 .project
 .settings/
 .vscode
+
+# Scaffolding created by external launcher tooling. The Gradle dev flow uses run/ via
+# runServer; see CLAUDE.md "How runServer actually works".
+server/
+*.bak
+# Agent worktrees (parallel-work skill)
+.worktrees/
+
+# Agent worktrees (Claude Code isolation)
+.claude/worktrees/
