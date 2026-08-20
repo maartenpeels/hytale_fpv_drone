@@ -1,0 +1,27 @@
+{
+    "Group": "MaartenPeels",
+    "Name": "fpv_drone",
+    "Version": "0.0.1",
+    "Description": "Adds FPV Drone Flying",
+    "Authors": [
+        {
+            "Name": "MaartenPeels",
+            "Email": "maartenpeels@gmail.com",
+            "Url": "https://github.com/maartenpeels"
+        }
+    ],
+    "Website": "https://github.com/maartenpeels/hytale_fpv_drone",
+    "DisabledByDefault": false,
+    "IncludesAssetPack": true,
+    "Dependencies": {
+        "Hytale:AssetModule": "*"
+    },
+    "OptionalDependencies": {
+        
+    },
+    "ServerVersion": ">=0.5.3 <0.6.0",
+    "Main": "com.maartenpeels.FPVDrone",
+    "UpdateChecker": {
+        "CurseForge": ""
+    }
+}

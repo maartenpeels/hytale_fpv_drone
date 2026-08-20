@@ -23,7 +23,9 @@ the decompiled server** (trust these over guesses).
 ./gradlew build --refresh-dependencies
 ```
 
-Java 25. JetBrains Runtime recommended for hot reload.
+Java 25 — required to **run Gradle**, not just to compile, because the `hytale-gradle-plugin`
+buildscript targets 25. If the default JDK is older, prefix with
+`JAVA_HOME=$(/usr/libexec/java_home -v 25)`. JetBrains Runtime recommended for hot reload.
 
 ---
 
@@ -169,7 +171,8 @@ re-decide.
 
 1. **Input** — bet on native gamepad passthrough when Hytale update 5 lands. Develop and test
    with keyboard/mouse now. Read `ClientMovement.wishMovement` + `lookOrientation`; normalise
-   to `-1..1` control axes at the plugin boundary so `:fpv-core` never sees a packet.
+   at the plugin boundary into `ControlInput` (`throttle` 0..1 because a quad's throttle is
+   unidirectional; `roll`/`pitch`/`yaw` −1..1) so `:fpv-core` never sees a packet.
 2. **Physics runs on the server.** A real quad model — thrust, angular rates, PID, drag,
    momentum — simulated server-side. This is what makes rates/PID (goal 3), calibration
    (goal 2), and authoritative race timing (goals 6–7) real rather than cosmetic. It costs a
@@ -264,17 +267,50 @@ Later phases, roughly in dependency order:
   to test and impossible to verify by flying around.
 - Prefer values and explicit state machines over booleans-plus-branching for race and flight
   mode state.
-- Config goes through `BuilderCodec`/`KeyedCodec` — see `ExampleConfig` for the pattern.
+- Config goes through `BuilderCodec`/`KeyedCodec` — see `FpvConfig` for the pattern.
+
+---
+
+## Project layout
+
+```
+build.gradle.kts        root: shared Java/test config only. Not a Java project, not a plugin.
+settings.gradle.kts     includes both modules
+gradle.properties       single source of mod identity; both modules read from it
+
+fpv-core/               pure Java + JUnit 5. NO Hytale on the classpath.
+  src/main/java/com/maartenpeels/fpv/**
+  src/test/java/com/maartenpeels/fpv/**
+
+fpv-plugin/             applies com.azuredoom.hytale-tools; depends on :fpv-core
+  src/main/java/com/maartenpeels/FPVDrone.java        entry point (matches main_class)
+  src/main/java/com/maartenpeels/fpv/plugin/**        adapters: config, commands, systems
+  src/main/resources/manifest.json                    generated; do not hand-edit
+```
+
+Notes that matter when changing the build:
+
+- The Hytale Gradle plugin is applied **only** in `:fpv-plugin`. That is the entire
+  enforcement mechanism for decision 10 — a `com.hypixel.*` import in `:fpv-core` fails to
+  compile with "package does not exist". Verified, not assumed.
+- The server loads a single jar, so `:fpv-core`'s classes are unpacked into the plugin jar via
+  the `bundledCore` configuration in `fpv-plugin/build.gradle.kts`. It is deliberately
+  non-transitive: `:fpv-core` must stay dependency-free at runtime. **If you add a runtime
+  dependency to `:fpv-core`, the plugin jar will silently ship without it.**
+- Unqualified task names resolve across the build, so `./gradlew runServer`,
+  `./gradlew updatePluginManifest` and `./gradlew setupHytaleDev` still work from the root
+  without a `:fpv-plugin:` prefix.
+- The `hytale-gradle-plugin` buildscript requires **JVM 25 to run Gradle itself**, not just to
+  compile. On a machine whose default JDK is older:
+  `JAVA_HOME=$(/usr/libexec/java_home -v 25) ./gradlew build`.
 
 ---
 
 ## Known repo issues (unfixed)
 
 - `gradle.properties`: `hytaleHomeOverride` is still the placeholder path (currently commented
-  out in `build.gradle.kts`).
-- `src/main/resources/manifest.json` is untouched template content
-  (`dev.hytalemodding.ExamplePlugin`). Regenerate with `./gradlew updatePluginManifest`.
-- `src/main/java/dev/hytalemodding/**` is still the template scaffold and must be replaced.
-- `build.gradle.kts` declares **no test dependencies** and there is no `src/test`. JUnit needs
-  adding as part of the module split.
+  out in `fpv-plugin/build.gradle.kts`).
+- The plugin jar is named from `mod_name`, so it builds as `FPV Drone-0.0.1.jar` — with a
+  space. Switch `archiveBaseName` to `mod_id` if that ever causes trouble.
 - No `LICENSE` file, though `mod_license = MIT`.
+- `README.md` is still the unmodified Hytale Plugin Template readme.
