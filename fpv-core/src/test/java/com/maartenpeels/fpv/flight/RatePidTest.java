@@ -236,6 +236,35 @@ class RatePidTest {
         }
 
         @Test
+        void storesNothingWhenPinnedAgainstTheWallInTheOtherDirectionEither() {
+            // The freeze is a sign comparison, which is the kind of thing that works on one side and
+            // not the other. Full stick the other way, and the answers should mirror exactly.
+            RatePid pid = new RatePid(RatePidGains.DEFAULT);
+            BodyRates reversed = UNREACHABLE.scale(-1);
+
+            RatePidState afterTenSeconds = hold(pid, reversed, BodyRates.ZERO, 2400);
+            TorqueDemand torque =
+                    pid.update(afterTenSeconds, reversed, BodyRates.ZERO, DEFAULT_SUBSTEP)
+                            .torque();
+
+            assertEquals(0.0, afterTenSeconds.roll().integral(), 1e-12);
+            assertEquals(0.0, afterTenSeconds.yaw().integral(), 1e-12);
+            assertEquals(-1.0, torque.roll(), 1e-12);
+            assertEquals(-1.0, torque.yaw(), 1e-12);
+        }
+
+        @Test
+        void clampsTheIntegralInTheNegativeDirectionToo() {
+            RatePid pid = new RatePid(RatePidGains.DEFAULT);
+            double limit = RatePidGains.DEFAULT.roll().integralLimit();
+
+            RatePidState wound = hold(pid, new BodyRates(-2, -2, -2), BodyRates.ZERO, 2400);
+
+            assertEquals(-limit, wound.roll().integral(), 1e-12);
+            assertEquals(-limit, wound.pitch().integral(), 1e-12);
+        }
+
+        @Test
         void clampsTheIntegralWhenTheErrorPersistsWithoutSaturatingTheOutput() {
             // The gap the freeze alone would leave: a demand small enough that the proportional term
             // does not saturate, but which the axis still cannot reach. Nothing ever triggers the

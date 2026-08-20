@@ -14,7 +14,7 @@ package com.maartenpeels.fpv.flight;
  * {@link RatePidGains}, persisted per player by #5, and deliberately not part of this record.
  *
  * <p>Build these with {@link #builder()} rather than the canonical constructor — eight positional
- * doubles is a transposition waiting to happen. {@link #DEFAULT} is a plausible racing quad; the
+ * parameters, seven of them bare doubles, is a transposition waiting to happen. {@link #DEFAULT} is a plausible racing quad; the
  * numbers are informed guesses about *feel*, and #24 is where they get judged.
  */
 public record QuadParameters(

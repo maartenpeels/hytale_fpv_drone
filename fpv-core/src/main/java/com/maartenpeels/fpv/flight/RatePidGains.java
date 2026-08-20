@@ -17,10 +17,13 @@ import java.util.function.UnaryOperator;
 public record RatePidGains(PidGains roll, PidGains pitch, PidGains yaw) {
 
     /**
-     * The rate error a proportional term of {@code 1 / (this · authority)} would close in one time
-     * constant. #13's placeholder rate tracker was exactly that expression, so deriving the default
-     * P gains from it makes this ticket feel-neutral: the model gains the ability to <em>hold</em> a
-     * rate without changing how hard it initially pulls toward one.
+     * The time constant the default proportional gains are derived from: a gain of
+     * {@code 1 / (this · authority)} asks for the torque that would close the whole rate error in
+     * this many seconds.
+     *
+     * <p>#13's placeholder rate tracker was exactly that expression, so reusing it here makes the
+     * arrival of a real rate loop feel-neutral — the drone pulls toward a demanded rate exactly as
+     * hard as it did before, and merely gains the ability to arrive.
      */
     public static final double DEFAULT_RATE_TIME_CONSTANT = 0.03;
 
