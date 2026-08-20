@@ -10,11 +10,13 @@ package com.maartenpeels.fpv.flight;
  * drone built around real gravity would feel like it was flying on the moon next to everything else
  * in it.
  *
- * <p>This is the <em>airframe</em>, which is server-wide. The pilot's rate-loop tune is
- * {@link RatePidGains}, persisted per player by #5, and deliberately not part of this record.
+ * <p>This is the <em>airframe</em>, which is server-wide. The pilot's tune is
+ * {@link RatePidGains} and {@link RateProfile}, persisted per player by #5, and deliberately not
+ * part of this record. Full-stick rate used to live here and moved out in #15 for exactly that
+ * reason: it is the first number a pilot changes, not a property of the frame.
  *
- * <p>Build these with {@link #builder()} rather than the canonical constructor — eight positional
- * parameters, seven of them bare doubles, is a transposition waiting to happen. {@link #DEFAULT} is a plausible racing quad; the
+ * <p>Build these with {@link #builder()} rather than the canonical constructor — seven positional
+ * parameters, all of them bare doubles, is a transposition waiting to happen. {@link #DEFAULT} is a plausible racing quad; the
  * numbers are informed guesses about *feel*, and #24 is where they get judged.
  */
 public record QuadParameters(
@@ -23,7 +25,6 @@ public record QuadParameters(
         double linearDrag,
         double quadraticDrag,
         double angularDrag,
-        BodyRates maxRates,
         double rollPitchAuthority,
         double yawAuthority) {
 
@@ -50,10 +51,6 @@ public record QuadParameters(
     /** The same for yaw, which on a real quad comes from prop reaction and is far weaker. */
     public static final double DEFAULT_YAW_AUTHORITY = Math.toRadians(2_500.0);
 
-    /** Full-stick rates: 800 °/s on roll and pitch, 400 °/s on yaw. */
-    public static final BodyRates DEFAULT_MAX_RATES =
-            new BodyRates(Math.toRadians(800.0), Math.toRadians(800.0), Math.toRadians(400.0));
-
     public QuadParameters {
         requirePositive(gravity, "gravity");
         requirePositive(thrustToWeight, "thrustToWeight");
@@ -62,12 +59,6 @@ public record QuadParameters(
         requireNonNegative(angularDrag, "angularDrag");
         requirePositive(rollPitchAuthority, "rollPitchAuthority");
         requirePositive(yawAuthority, "yawAuthority");
-        if (maxRates == null || !maxRates.isFinite()) {
-            throw new IllegalArgumentException("maxRates must be finite but was " + maxRates);
-        }
-        if (maxRates.roll() <= 0 || maxRates.pitch() <= 0 || maxRates.yaw() <= 0) {
-            throw new IllegalArgumentException("every max rate must be positive but was " + maxRates);
-        }
     }
 
     public static Builder builder() {
@@ -117,7 +108,6 @@ public record QuadParameters(
         private double linearDrag = DEFAULT_LINEAR_DRAG;
         private double quadraticDrag = DEFAULT_QUADRATIC_DRAG;
         private double angularDrag = DEFAULT_ANGULAR_DRAG;
-        private BodyRates maxRates = DEFAULT_MAX_RATES;
         private double rollPitchAuthority = DEFAULT_ROLL_PITCH_AUTHORITY;
         private double yawAuthority = DEFAULT_YAW_AUTHORITY;
 
@@ -153,11 +143,6 @@ public record QuadParameters(
             return this.linearDrag(0.0).quadraticDrag(0.0).angularDrag(0.0);
         }
 
-        public Builder maxRates(BodyRates maxRates) {
-            this.maxRates = maxRates;
-            return this;
-        }
-
         public Builder rollPitchAuthority(double rollPitchAuthority) {
             this.rollPitchAuthority = rollPitchAuthority;
             return this;
@@ -175,7 +160,6 @@ public record QuadParameters(
                     this.linearDrag,
                     this.quadraticDrag,
                     this.angularDrag,
-                    this.maxRates,
                     this.rollPitchAuthority,
                     this.yawAuthority);
         }

@@ -107,18 +107,6 @@ class QuadParametersTest {
         }
 
         @Test
-        void rejectsAnAxisThatCannotRotateAtAll() {
-            // A zero max rate would silently disable an axis, which is far harder to diagnose in
-            // the air than a refusal to build.
-            assertThrows(
-                    IllegalArgumentException.class,
-                    () -> QuadParameters.builder().maxRates(new BodyRates(1, 0, 1)).build());
-            assertThrows(
-                    IllegalArgumentException.class,
-                    () -> QuadParameters.builder().maxRates(null).build());
-        }
-
-        @Test
         void rejectsAnAxisWithNoTorqueAuthority() {
             // Authority scales the achieved thrust differential into angular acceleration, so zero
             // is an axis that cannot be commanded at all.

@@ -30,9 +30,22 @@ class RatePidTest {
 
     private static final QuadParameters AIRFRAME = QuadParameters.DEFAULT;
 
+    /**
+     * The <em>linear</em> rate profile, not {@link RateProfile#DEFAULT}.
+     *
+     * <p>These tests are about the rate loop, so the stick-to-rate map should not be a variable in
+     * them: a half-stick demand here means half of max rate, exactly as it did before #15 replaced
+     * the linear map with a curve. That keeps every number this file asserts — and every figure in
+     * #14's plan document — directly comparable, and it makes this file the check that relocating
+     * full-stick rate out of the airframe changed no behaviour. {@code RateCurveTest} is where the
+     * curve's own shape is tested.
+     */
+    private static final RateProfile RATES =
+            RateProfile.DEFAULT.onEveryAxis(RateCurve::asLinear);
+
     private static FlightState fly(
             RatePidGains gains, ControlInput input, double dt, double seconds) {
-        QuadIntegrator integrator = new QuadIntegrator(AIRFRAME, gains);
+        QuadIntegrator integrator = new QuadIntegrator(AIRFRAME, gains, RATES);
         FlightState state = FlightState.restingAt(Vec3.ZERO);
         int steps = (int) Math.round(seconds / dt);
         for (int i = 0; i < steps; i++) {
@@ -44,7 +57,7 @@ class RatePidTest {
     /** Peak roll rate reached over {@code seconds}, for asking about overshoot. */
     private static double peakRollRate(
             RatePidGains gains, ControlInput input, double dt, double seconds) {
-        QuadIntegrator integrator = new QuadIntegrator(AIRFRAME, gains);
+        QuadIntegrator integrator = new QuadIntegrator(AIRFRAME, gains, RATES);
         FlightState state = FlightState.restingAt(Vec3.ZERO);
         double peak = 0;
         int steps = (int) Math.round(seconds / dt);
@@ -56,7 +69,7 @@ class RatePidTest {
     }
 
     private static double demandedRoll(float stick) {
-        return stick * AIRFRAME.maxRates().roll();
+        return RATES.roll().rateFor(stick);
     }
 
     @Nested
@@ -133,7 +146,7 @@ class RatePidTest {
                             new ControlInput(0.5f, 0.4f, -0.3f, 0.5f),
                             DEFAULT_SUBSTEP,
                             1.0);
-            BodyRates maxRates = AIRFRAME.maxRates();
+            BodyRates maxRates = RATES.maxRates();
             BodyRates rates = after.drone().bodyRates();
 
             assertEquals(0.4 * maxRates.roll(), rates.roll(), 0.4 * maxRates.roll() * 0.02);
@@ -206,7 +219,7 @@ class RatePidTest {
     class Windup {
 
         /** Full stick on every axis, which no airframe can hold against a wall. */
-        private static final BodyRates UNREACHABLE = AIRFRAME.maxRates();
+        private static final BodyRates UNREACHABLE = RATES.maxRates();
 
         private static RatePidState hold(
                 RatePid pid, BodyRates demanded, BodyRates measured, int steps) {

@@ -25,13 +25,11 @@ import com.maartenpeels.fpv.math.Vec3;
  *       position.
  * </ol>
  *
- * <h2>The remaining placeholder</h2>
+ * <h2>No placeholders left</h2>
  *
- * Step 1 is deliberately the dumbest thing that flies: stick to rate is <b>linear</b>. Rate and
- * expo curves are #15, and will introduce an interface when there is a second implementation to
- * justify one.
- *
- * <p>Step 2 is no longer a placeholder — {@link RatePid} is the real rate loop as of #14.
+ * Step 1 is a real rate and expo curve as of #15 — {@link RateProfile}, replacing the linear
+ * stick-to-rate map #13 shipped. Step 2 is {@link RatePid}, the real rate loop, as of #14. Neither
+ * introduced an interface, because there is still only one implementation of each.
  *
  * <p>Because mixing is linear in command space while thrust goes with the square of the command,
  * achieved torque does not equal demanded torque. That is not an approximation to be tidied away —
@@ -45,18 +43,26 @@ public final class QuadIntegrator {
 
     private final QuadParameters parameters;
     private final RatePid rateController;
+    private final RateProfile rates;
 
-    /** The default tune, {@link RatePidGains#DEFAULT}, on the given airframe. */
+    /**
+     * The default tune — {@link RatePidGains#DEFAULT} and {@link RateProfile#DEFAULT} — on the
+     * given airframe.
+     */
     public QuadIntegrator(QuadParameters parameters) {
-        this(parameters, RatePidGains.DEFAULT);
+        this(parameters, RatePidGains.DEFAULT, RateProfile.DEFAULT);
     }
 
-    public QuadIntegrator(QuadParameters parameters, RatePidGains gains) {
+    public QuadIntegrator(QuadParameters parameters, RatePidGains gains, RateProfile rates) {
         if (parameters == null) {
             throw new IllegalArgumentException("parameters must not be null");
         }
+        if (rates == null) {
+            throw new IllegalArgumentException("rates must not be null");
+        }
         this.parameters = parameters;
         this.rateController = new RatePid(gains);
+        this.rates = rates;
     }
 
     public QuadParameters parameters() {
@@ -65,6 +71,10 @@ public final class QuadIntegrator {
 
     public RatePidGains gains() {
         return this.rateController.gains();
+    }
+
+    public RateProfile rates() {
+        return this.rates;
     }
 
     /**
@@ -83,7 +93,8 @@ public final class QuadIntegrator {
         DroneState drone = state.drone();
         BodyRates rates = drone.bodyRates();
         RatePidUpdate control =
-                this.rateController.update(state.controller(), this.demandedRates(input), rates, dt);
+                this.rateController.update(
+                        state.controller(), this.rates.demand(input), rates, dt);
         TorqueDemand torque = control.torque();
 
         MotorThrusts thrusts =
@@ -144,14 +155,5 @@ public final class QuadIntegrator {
                         thrusts.pitchDifferential() * rollPitch,
                         thrusts.yawDifferential() * this.parameters.yawAuthority());
         return torque.plus(state.bodyRates().scale(-this.parameters.angularDrag()));
-    }
-
-    /** Linear stick-to-rate mapping. Placeholder for #15's rate and expo curves. */
-    private BodyRates demandedRates(ControlInput input) {
-        BodyRates maxRates = this.parameters.maxRates();
-        return new BodyRates(
-                input.roll() * maxRates.roll(),
-                input.pitch() * maxRates.pitch(),
-                input.yaw() * maxRates.yaw());
     }
 }
