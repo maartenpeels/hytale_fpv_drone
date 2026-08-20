@@ -16,6 +16,9 @@ import java.util.concurrent.CompletableFuture;
  * what you need to confirm the plugin loaded and read its config.
  *
  * <p>{@code launch} and {@code land} land in phase 0 (CLAUDE.md roadmap).
+ *
+ * <p>{@code rolltest} and {@code rollreset} are throwaway spike instruments for #28 — delete
+ * them once #19 attaches the camera to a real drone entity.
  */
 public class FpvCommand extends AbstractCommand {
 
@@ -25,6 +28,8 @@ public class FpvCommand extends AbstractCommand {
         super("fpv", "FPV drone flight");
         this.setPermissionGroups(HytalePermissionsProvider.GROUP_ADVENTURER);
         this.plugin = plugin;
+        this.addSubCommand(new FpvRollTestCommand());
+        this.addSubCommand(new FpvRollResetCommand());
     }
 
     @Nullable
