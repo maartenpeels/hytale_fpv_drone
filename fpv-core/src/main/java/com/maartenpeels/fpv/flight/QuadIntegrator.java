@@ -25,41 +25,46 @@ import com.maartenpeels.fpv.math.Vec3;
  *       position.
  * </ol>
  *
- * <h2>The two placeholders</h2>
+ * <h2>The remaining placeholder</h2>
  *
- * Steps 1 and 2 have their own tickets and are deliberately the dumbest thing that flies here:
+ * Step 1 is deliberately the dumbest thing that flies: stick to rate is <b>linear</b>. Rate and
+ * expo curves are #15, and will introduce an interface when there is a second implementation to
+ * justify one.
  *
- * <ul>
- *   <li>Stick to rate is <b>linear</b>. Rate and expo curves are #15.
- *   <li>Rate to torque is <b>proportional only</b>. The rate PID is #14. A proportional tracker
- *       cannot hold a rate against sustained drag, so the model will feel stiff until #14 lands —
- *       expected, not a regression.
- * </ul>
- *
- * Neither has been given an interface yet; #14 and #15 will introduce those when there is a second
- * implementation to justify one.
+ * <p>Step 2 is no longer a placeholder — {@link RatePid} is the real rate loop as of #14.
  *
  * <p>Because mixing is linear in command space while thrust goes with the square of the command,
  * achieved torque does not equal demanded torque. That is not an approximation to be tidied away —
- * it is exactly the error a real rate PID exists to close, and #14 inherits an honest version of the
- * problem rather than a model that pretends it away.
+ * it is exactly the error the rate PID exists to close, and the loop it closes is therefore
+ * genuinely non-linear and throttle-dependent rather than a textbook first-order plant.
  *
- * <p>Instances are immutable and hold no mutable state, so one can be shared across every pilot on
- * the server.
+ * <p>Instances are immutable and hold no mutable state, so one can be shared across every pilot
+ * flying the same airframe and tune. A retune (#5) means a new integrator rather than a mutated one.
  */
 public final class QuadIntegrator {
 
     private final QuadParameters parameters;
+    private final RatePid rateController;
 
+    /** The default tune, {@link RatePidGains#DEFAULT}, on the given airframe. */
     public QuadIntegrator(QuadParameters parameters) {
+        this(parameters, RatePidGains.DEFAULT);
+    }
+
+    public QuadIntegrator(QuadParameters parameters, RatePidGains gains) {
         if (parameters == null) {
             throw new IllegalArgumentException("parameters must not be null");
         }
         this.parameters = parameters;
+        this.rateController = new RatePid(gains);
     }
 
     public QuadParameters parameters() {
         return this.parameters;
+    }
+
+    public RatePidGains gains() {
+        return this.rateController.gains();
     }
 
     /**
@@ -67,34 +72,36 @@ public final class QuadIntegrator {
      *
      * @param dt seconds of simulated time; must be finite and positive
      */
-    public DroneState step(DroneState state, ControlInput input, double dt) {
+    public FlightState step(FlightState state, ControlInput input, double dt) {
+        if (state == null) {
+            throw new IllegalArgumentException("state must not be null");
+        }
         if (!Double.isFinite(dt) || dt <= 0.0) {
             throw new IllegalArgumentException("dt must be finite and positive but was " + dt);
         }
 
-        BodyRates rates = state.bodyRates();
-        double rollPitchAuthority = this.parameters.rollPitchAuthority();
-        double rollDemand =
-                this.torqueDemand(rates.roll(), this.demandedRoll(input), rollPitchAuthority);
-        double pitchDemand =
-                this.torqueDemand(rates.pitch(), this.demandedPitch(input), rollPitchAuthority);
-        double yawDemand =
-                this.torqueDemand(
-                        rates.yaw(), this.demandedYaw(input), this.parameters.yawAuthority());
+        DroneState drone = state.drone();
+        BodyRates rates = drone.bodyRates();
+        RatePidUpdate control =
+                this.rateController.update(state.controller(), this.demandedRates(input), rates, dt);
+        TorqueDemand torque = control.torque();
 
         MotorThrusts thrusts =
-                MotorMixer.mix(input.throttle(), rollDemand, pitchDemand, yawDemand).thrusts();
+                MotorMixer.mix(input.throttle(), torque.roll(), torque.pitch(), torque.yaw())
+                        .thrusts();
 
-        BodyRates nextRates = rates.plus(this.angularAcceleration(state, thrusts).scale(dt));
+        BodyRates nextRates = rates.plus(this.angularAcceleration(drone, thrusts).scale(dt));
         // Semi-implicit: attitude turns at the rate the drone has *after* this step's torque, which
         // keeps rotation from lagging a step behind the sticks.
-        var nextOrientation = state.orientation().integrate(nextRates.toBodyAxes(), dt);
+        var nextOrientation = drone.orientation().integrate(nextRates.toBodyAxes(), dt);
 
-        Vec3 acceleration = this.linearAcceleration(state, thrusts);
-        Vec3 nextVelocity = state.velocity().plus(acceleration.scale(dt));
-        Vec3 nextPosition = state.position().plus(nextVelocity.scale(dt));
+        Vec3 acceleration = this.linearAcceleration(drone, thrusts);
+        Vec3 nextVelocity = drone.velocity().plus(acceleration.scale(dt));
+        Vec3 nextPosition = drone.position().plus(nextVelocity.scale(dt));
 
-        return new DroneState(nextPosition, nextVelocity, nextOrientation, nextRates);
+        return new FlightState(
+                new DroneState(nextPosition, nextVelocity, nextOrientation, nextRates),
+                control.state());
     }
 
     /**
@@ -139,27 +146,12 @@ public final class QuadIntegrator {
         return torque.plus(state.bodyRates().scale(-this.parameters.angularDrag()));
     }
 
-    /**
-     * Proportional rate tracking: ask for the torque that would close the rate error in one time
-     * constant, and clamp it to what one axis of the mixer can represent.
-     *
-     * <p>Placeholder for #14's PID.
-     */
-    private double torqueDemand(double actualRate, double demandedRate, double authority) {
-        double error = demandedRate - actualRate;
-        return Math.clamp(error / (this.parameters.rateTimeConstant() * authority), -1.0, 1.0);
-    }
-
     /** Linear stick-to-rate mapping. Placeholder for #15's rate and expo curves. */
-    private double demandedRoll(ControlInput input) {
-        return input.roll() * this.parameters.maxRates().roll();
-    }
-
-    private double demandedPitch(ControlInput input) {
-        return input.pitch() * this.parameters.maxRates().pitch();
-    }
-
-    private double demandedYaw(ControlInput input) {
-        return input.yaw() * this.parameters.maxRates().yaw();
+    private BodyRates demandedRates(ControlInput input) {
+        BodyRates maxRates = this.parameters.maxRates();
+        return new BodyRates(
+                input.roll() * maxRates.roll(),
+                input.pitch() * maxRates.pitch(),
+                input.yaw() * maxRates.yaw());
     }
 }

@@ -9,14 +9,18 @@ import com.maartenpeels.fpv.math.Vec3;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 
+/**
+ * The dynamics: forces, torques and integration. How well the rate loop <em>tracks</em> a demand is
+ * {@link RatePidTest}'s subject, and it drives this same integrator to ask.
+ */
 class QuadIntegratorTest {
 
     /** 30 TPS with 8 substeps — the configured default in {@code FpvConfig}. */
     private static final double DEFAULT_SUBSTEP = 1.0 / (30 * 8);
 
-    private static DroneState simulate(
-            QuadIntegrator integrator, DroneState from, ControlInput input, double dt, int steps) {
-        DroneState state = from;
+    private static FlightState simulate(
+            QuadIntegrator integrator, FlightState from, ControlInput input, double dt, int steps) {
+        FlightState state = from;
         for (int i = 0; i < steps; i++) {
             state = integrator.step(state, input, dt);
         }
@@ -24,10 +28,10 @@ class QuadIntegratorTest {
     }
 
     /** Runs for a fixed span of simulated time, whatever the step size. */
-    private static DroneState simulateSeconds(
+    private static FlightState simulateSeconds(
             QuadIntegrator integrator, ControlInput input, double seconds, int steps) {
         return simulate(
-                integrator, DroneState.restingAt(Vec3.ZERO), input, seconds / steps, steps);
+                integrator, FlightState.restingAt(Vec3.ZERO), input, seconds / steps, steps);
     }
 
     @Nested
@@ -40,18 +44,18 @@ class QuadIntegratorTest {
             ControlInput hover =
                     new ControlInput((float) parameters.hoverCollective(), 0f, 0f, 0f);
 
-            DroneState after =
+            FlightState after =
                     simulate(
                             integrator,
-                            DroneState.restingAt(new Vec3(0, 100, 0)),
+                            FlightState.restingAt(new Vec3(0, 100, 0)),
                             hover,
                             DEFAULT_SUBSTEP,
                             2400);
 
             // Ten seconds of hover. The residual is float rounding on the throttle axis, nothing
             // structural, so the tolerance is tight.
-            assertEquals(100.0, after.position().y(), 1e-3);
-            assertEquals(0.0, after.speed(), 1e-3);
+            assertEquals(100.0, after.drone().position().y(), 1e-3);
+            assertEquals(0.0, after.drone().speed(), 1e-3);
         }
 
         @Test
@@ -60,25 +64,25 @@ class QuadIntegratorTest {
             QuadIntegrator integrator = new QuadIntegrator(parameters);
             float hover = (float) parameters.hoverCollective();
 
-            DroneState sinking =
+            FlightState sinking =
                     simulate(
                             integrator,
-                            DroneState.restingAt(Vec3.ZERO),
+                            FlightState.restingAt(Vec3.ZERO),
                             new ControlInput(hover * 0.5f, 0f, 0f, 0f),
                             DEFAULT_SUBSTEP,
                             240);
-            DroneState climbing =
+            FlightState climbing =
                     simulate(
                             integrator,
-                            DroneState.restingAt(Vec3.ZERO),
+                            FlightState.restingAt(Vec3.ZERO),
                             new ControlInput(hover * 1.5f, 0f, 0f, 0f),
                             DEFAULT_SUBSTEP,
                             240);
 
-            assertTrue(sinking.velocity().y() < 0, "should sink but y velocity was "
-                    + sinking.velocity().y());
-            assertTrue(climbing.velocity().y() > 0, "should climb but y velocity was "
-                    + climbing.velocity().y());
+            assertTrue(sinking.drone().velocity().y() < 0, "should sink but y velocity was "
+                    + sinking.drone().velocity().y());
+            assertTrue(climbing.drone().velocity().y() > 0, "should climb but y velocity was "
+                    + climbing.drone().velocity().y());
         }
 
         @Test
@@ -86,18 +90,18 @@ class QuadIntegratorTest {
             QuadParameters parameters = QuadParameters.DEFAULT;
             QuadIntegrator integrator = new QuadIntegrator(parameters);
 
-            DroneState after =
+            FlightState after =
                     simulate(
                             integrator,
-                            DroneState.restingAt(Vec3.ZERO),
+                            FlightState.restingAt(Vec3.ZERO),
                             new ControlInput((float) parameters.hoverCollective(), 0f, 0f, 0f),
                             DEFAULT_SUBSTEP,
                             2400);
 
-            assertEquals(0.0, after.bodyRates().roll(), 1e-12);
-            assertEquals(0.0, after.bodyRates().pitch(), 1e-12);
-            assertEquals(0.0, after.bodyRates().yaw(), 1e-12);
-            assertEquals(1.0, after.thrustAxis().y(), 1e-12);
+            assertEquals(0.0, after.drone().bodyRates().roll(), 1e-12);
+            assertEquals(0.0, after.drone().bodyRates().pitch(), 1e-12);
+            assertEquals(0.0, after.drone().bodyRates().yaw(), 1e-12);
+            assertEquals(1.0, after.drone().thrustAxis().y(), 1e-12);
         }
     }
 
@@ -111,10 +115,10 @@ class QuadIntegratorTest {
             double gravity = QuadParameters.DEFAULT_GRAVITY;
             int steps = 240;
 
-            DroneState after =
+            FlightState after =
                     simulate(
                             integrator,
-                            DroneState.restingAt(Vec3.ZERO),
+                            FlightState.restingAt(Vec3.ZERO),
                             ControlInput.NEUTRAL,
                             DEFAULT_SUBSTEP,
                             steps);
@@ -126,10 +130,10 @@ class QuadIntegratorTest {
             double expectedDrop =
                     -gravity * DEFAULT_SUBSTEP * DEFAULT_SUBSTEP * steps * (steps + 1) / 2.0;
 
-            assertEquals(expectedVelocity, after.velocity().y(), 1e-9);
-            assertEquals(expectedDrop, after.position().y(), 1e-9);
-            assertEquals(0.0, after.position().x(), 1e-12);
-            assertEquals(0.0, after.position().z(), 1e-12);
+            assertEquals(expectedVelocity, after.drone().velocity().y(), 1e-9);
+            assertEquals(expectedDrop, after.drone().position().y(), 1e-9);
+            assertEquals(0.0, after.drone().position().x(), 1e-12);
+            assertEquals(0.0, after.drone().position().z(), 1e-12);
         }
 
         @Test
@@ -140,14 +144,14 @@ class QuadIntegratorTest {
             double seconds = 1.0;
             int steps = 240;
 
-            DroneState after = simulateSeconds(integrator, ControlInput.NEUTRAL, seconds, steps);
+            FlightState after = simulateSeconds(integrator, ControlInput.NEUTRAL, seconds, steps);
 
             // First-order truncation over the whole fall comes to exactly half a step of velocity,
             // so that is the bound worth asserting rather than a round number.
             double continuousDrop = -0.5 * gravity * seconds * seconds;
             double oneStepOfVelocity = gravity * (seconds / steps) * seconds * 0.5;
 
-            assertEquals(continuousDrop, after.position().y(), oneStepOfVelocity * 1.01);
+            assertEquals(continuousDrop, after.drone().position().y(), oneStepOfVelocity * 1.01);
         }
     }
 
@@ -166,15 +170,15 @@ class QuadIntegratorTest {
             QuadIntegrator integrator = new QuadIntegrator(parameters);
             double terminal = Math.sqrt(parameters.gravity() / quadraticDrag);
 
-            DroneState after =
+            FlightState after =
                     simulate(
                             integrator,
-                            DroneState.restingAt(Vec3.ZERO),
+                            FlightState.restingAt(Vec3.ZERO),
                             ControlInput.NEUTRAL,
                             DEFAULT_SUBSTEP,
                             30 * 8 * 30);
 
-            assertEquals(-terminal, after.velocity().y(), 0.01);
+            assertEquals(-terminal, after.drone().velocity().y(), 0.01);
         }
 
         @Test
@@ -185,12 +189,12 @@ class QuadIntegratorTest {
             QuadIntegrator integrator = new QuadIntegrator(parameters);
             double terminal = Math.sqrt(parameters.gravity() / quadraticDrag);
 
-            DroneState state = DroneState.restingAt(Vec3.ZERO);
+            FlightState state = FlightState.restingAt(Vec3.ZERO);
             for (int i = 0; i < 30 * 8 * 30; i++) {
                 state = integrator.step(state, ControlInput.NEUTRAL, DEFAULT_SUBSTEP);
                 assertTrue(
-                        state.speed() <= terminal,
-                        "speed " + state.speed() + " exceeded terminal " + terminal);
+                        state.drone().speed() <= terminal,
+                        "speed " + state.drone().speed() + " exceeded terminal " + terminal);
             }
         }
 
@@ -201,15 +205,16 @@ class QuadIntegratorTest {
                     QuadParameters.builder().linearDrag(linearDrag).quadraticDrag(0).build();
             QuadIntegrator integrator = new QuadIntegrator(parameters);
 
-            DroneState after =
+            FlightState after =
                     simulate(
                             integrator,
-                            DroneState.restingAt(Vec3.ZERO),
+                            FlightState.restingAt(Vec3.ZERO),
                             ControlInput.NEUTRAL,
                             DEFAULT_SUBSTEP,
                             30 * 8 * 60);
 
-            assertEquals(-parameters.gravity() / linearDrag, after.velocity().y(), 0.01);
+            assertEquals(
+                    -parameters.gravity() / linearDrag, after.drone().velocity().y(), 0.01);
         }
     }
 
@@ -222,7 +227,7 @@ class QuadIntegratorTest {
 
         /**
          * A gentle off-axis input. Every axis moves, so thrust direction, drag and rotation all
-         * matter — but the demands stay inside the rate tracker's linear region and inside the
+         * matter — but the demands stay inside the rate loop's unsaturated region and inside the
          * mixer's unsaturated branch, so the integrand is smooth and the error really is O(dt).
          */
         private static final ControlInput CRUISING = new ControlInput(0.5f, 0.06f, -0.05f, 0.03f);
@@ -232,11 +237,12 @@ class QuadIntegratorTest {
             QuadIntegrator integrator = new QuadIntegrator(QuadParameters.DEFAULT);
             double seconds = 1.0;
 
-            DroneState coarse = simulateSeconds(integrator, CRUISING, seconds, 240);
-            DroneState fine = simulateSeconds(integrator, CRUISING, seconds, 480);
+            FlightState coarse = simulateSeconds(integrator, CRUISING, seconds, 240);
+            FlightState fine = simulateSeconds(integrator, CRUISING, seconds, 480);
 
-            double travelled = coarse.position().length();
-            double difference = coarse.position().minus(fine.position()).length();
+            double travelled = coarse.drone().position().length();
+            double difference =
+                    coarse.drone().position().minus(fine.drone().position()).length();
 
             assertTrue(travelled > 5.0, "the test input should actually move the drone");
             assertTrue(
@@ -247,18 +253,21 @@ class QuadIntegratorTest {
         @Test
         void convergesAsTheStepShrinksRatherThanMerelyStayingClose() {
             // Staying within a tolerance could just mean the whole thing is insensitive. Halving dt
-            // must actually halve the error against a much finer reference.
+            // must actually reduce the error against a much finer reference.
             QuadIntegrator integrator = new QuadIntegrator(QuadParameters.DEFAULT);
             double seconds = 1.0;
 
-            Vec3 reference = simulateSeconds(integrator, CRUISING, seconds, 15_360).position();
+            Vec3 reference =
+                    simulateSeconds(integrator, CRUISING, seconds, 15_360).drone().position();
             double coarseError =
                     simulateSeconds(integrator, CRUISING, seconds, 240)
+                            .drone()
                             .position()
                             .minus(reference)
                             .length();
             double fineError =
                     simulateSeconds(integrator, CRUISING, seconds, 480)
+                            .drone()
                             .position()
                             .minus(reference)
                             .length();
@@ -271,9 +280,11 @@ class QuadIntegratorTest {
         @Test
         void staysStableAtTheCoarsestStepTheConfigCanProduce() {
             // FpvConfig.physicsSubsteps is a config value, so someone can legitimately set it to 1
-            // and hand the integrator a whole 30 TPS tick. It must degrade in accuracy, not blow up.
+            // and hand the integrator a whole 30 TPS tick. It must degrade in accuracy, not blow up
+            // -- and the rate loop's derivative term, which divides by dt, is the part most likely
+            // to misbehave when dt is eight times its design point.
             QuadIntegrator integrator = new QuadIntegrator(QuadParameters.DEFAULT);
-            DroneState state = DroneState.restingAt(Vec3.ZERO);
+            FlightState state = FlightState.restingAt(Vec3.ZERO);
 
             for (int i = 0; i < 300; i++) {
                 state = integrator.step(state, new ControlInput(0.8f, 0.9f, -0.7f, 0.5f), 1.0 / 30);
@@ -281,11 +292,15 @@ class QuadIntegratorTest {
 
             // The constructor rejects non-finite state, so reaching here at all proves it held
             // together; the bounds then check it did not diverge to something absurd.
-            assertTrue(state.position().isFinite(), "position went non-finite");
+            assertTrue(state.drone().position().isFinite(), "position went non-finite");
             assertTrue(
-                    state.speed() < 1000,
-                    "speed ran away to " + state.speed() + " at one substep per tick");
-            assertEquals(1.0, state.orientation().norm(), 1e-9, "orientation stopped being a rotation");
+                    state.drone().speed() < 1000,
+                    "speed ran away to " + state.drone().speed() + " at one substep per tick");
+            assertEquals(
+                    1.0,
+                    state.drone().orientation().norm(),
+                    1e-9,
+                    "orientation stopped being a rotation");
         }
 
         @Test
@@ -293,8 +308,8 @@ class QuadIntegratorTest {
             QuadIntegrator integrator = new QuadIntegrator(QuadParameters.DEFAULT);
             double seconds = 1.0;
 
-            Vec3 coarseNose = simulateSeconds(integrator, CRUISING, seconds, 240).forward();
-            Vec3 fineNose = simulateSeconds(integrator, CRUISING, seconds, 480).forward();
+            Vec3 coarseNose = simulateSeconds(integrator, CRUISING, seconds, 240).drone().forward();
+            Vec3 fineNose = simulateSeconds(integrator, CRUISING, seconds, 480).drone().forward();
 
             assertEquals(0.0, coarseNose.minus(fineNose).length(), 0.005);
         }
@@ -305,16 +320,19 @@ class QuadIntegratorTest {
             QuadIntegrator integrator = new QuadIntegrator(QuadParameters.DEFAULT);
             double seconds = 2.0;
 
-            DroneState atThirtyTps =
+            FlightState atThirtyTps =
                     simulateSeconds(integrator, CRUISING, seconds, (int) (30 * 8 * seconds));
-            DroneState atTwoFortyTps =
+            FlightState atTwoFortyTps =
                     simulateSeconds(integrator, CRUISING, seconds, (int) (240 * 8 * seconds));
 
-            double travelled = atThirtyTps.position().length();
+            double travelled = atThirtyTps.drone().position().length();
             double difference =
-                    atThirtyTps.position().minus(atTwoFortyTps.position()).length();
+                    atThirtyTps
+                            .drone()
+                            .position()
+                            .minus(atTwoFortyTps.drone().position())
+                            .length();
 
-            // Measured at 0.42% -- 25 cm after 58 m of flight, well inside gate-detection noise.
             assertTrue(
                     difference < 0.01 * travelled,
                     "moved " + travelled + " but the two tick rates disagreed by " + difference);
@@ -325,25 +343,22 @@ class QuadIntegratorTest {
     class AttitudeResponse {
 
         @Test
-        void aRollInputRollsTowardsTheDemandedRateWithoutTouchingTheOtherAxes() {
+        void aRollInputRollsRightWithoutTouchingTheOtherAxes() {
             QuadIntegrator integrator = new QuadIntegrator(QuadParameters.DEFAULT);
             ControlInput rollRight = new ControlInput(0.5f, 0.5f, 0f, 0f);
 
-            DroneState after =
+            FlightState after =
                     simulate(
                             integrator,
-                            DroneState.restingAt(Vec3.ZERO),
+                            FlightState.restingAt(Vec3.ZERO),
                             rollRight,
                             DEFAULT_SUBSTEP,
                             48);
 
-            double demanded = 0.5 * QuadParameters.DEFAULT.maxRates().roll();
-            assertTrue(after.bodyRates().roll() > 0, "should be rolling right");
-            assertTrue(
-                    after.bodyRates().roll() <= demanded,
-                    "should not overshoot the demanded rate on a proportional tracker");
-            assertEquals(0.0, after.bodyRates().pitch(), 1e-9, "pitch must stay uncommanded");
-            assertEquals(0.0, after.bodyRates().yaw(), 1e-9, "yaw must stay uncommanded");
+            assertTrue(after.drone().bodyRates().roll() > 0, "should be rolling right");
+            assertEquals(
+                    0.0, after.drone().bodyRates().pitch(), 1e-9, "pitch must stay uncommanded");
+            assertEquals(0.0, after.drone().bodyRates().yaw(), 1e-9, "yaw must stay uncommanded");
         }
 
         @Test
@@ -353,16 +368,16 @@ class QuadIntegratorTest {
             QuadIntegrator integrator = new QuadIntegrator(QuadParameters.DEFAULT);
             ControlInput noseDown = new ControlInput(0.6f, 0f, 0.4f, 0f);
 
-            DroneState after =
+            FlightState after =
                     simulate(
                             integrator,
-                            DroneState.restingAt(Vec3.ZERO),
+                            FlightState.restingAt(Vec3.ZERO),
                             noseDown,
                             DEFAULT_SUBSTEP,
                             60);
 
-            assertTrue(after.forward().y() < 0, "nose should be down");
-            assertTrue(after.velocity().z() < 0, "should be accelerating towards -Z, forward");
+            assertTrue(after.drone().forward().y() < 0, "nose should be down");
+            assertTrue(after.drone().velocity().z() < 0, "should be accelerating towards -Z, forward");
         }
 
         @Test
@@ -371,16 +386,18 @@ class QuadIntegratorTest {
             // idle. The demand is small on purpose: a saturated one pins the collective to mid
             // throttle regardless, which the mixer's own test covers.
             QuadIntegrator integrator = new QuadIntegrator(QuadParameters.DEFAULT);
-            DroneState resting = DroneState.restingAt(Vec3.ZERO);
+            FlightState resting = FlightState.restingAt(Vec3.ZERO);
 
             double atIdle =
                     integrator
                             .step(resting, new ControlInput(0f, 0.1f, 0f, 0f), DEFAULT_SUBSTEP)
+                            .drone()
                             .bodyRates()
                             .roll();
             double atMidThrottle =
                     integrator
                             .step(resting, new ControlInput(0.5f, 0.1f, 0f, 0f), DEFAULT_SUBSTEP)
+                            .drone()
                             .bodyRates()
                             .roll();
 
@@ -393,20 +410,20 @@ class QuadIntegratorTest {
         @Test
         void angularDragBleedsOffRotationOnceTheSticksCentre() {
             QuadIntegrator integrator = new QuadIntegrator(QuadParameters.DEFAULT);
-            DroneState spinning =
+            FlightState spinning =
                     simulate(
                             integrator,
-                            DroneState.restingAt(Vec3.ZERO),
+                            FlightState.restingAt(Vec3.ZERO),
                             new ControlInput(0.5f, 1f, 0f, 0f),
                             DEFAULT_SUBSTEP,
                             120);
 
-            DroneState coasting =
+            FlightState coasting =
                     simulate(integrator, spinning, ControlInput.NEUTRAL, DEFAULT_SUBSTEP, 120);
 
-            assertTrue(spinning.bodyRates().roll() > 0, "should have built up a roll rate");
+            assertTrue(spinning.drone().bodyRates().roll() > 0, "should have built up a roll rate");
             assertTrue(
-                    coasting.bodyRates().roll() < spinning.bodyRates().roll(),
+                    coasting.drone().bodyRates().roll() < spinning.drone().bodyRates().roll(),
                     "centring the sticks should bleed the rate off, not hold it");
         }
     }
@@ -417,10 +434,10 @@ class QuadIntegratorTest {
         @Test
         void theSameStateInputAndDtAlwaysGiveTheSameResult() {
             QuadIntegrator integrator = new QuadIntegrator(QuadParameters.DEFAULT);
-            DroneState start =
+            FlightState start =
                     simulate(
                             integrator,
-                            DroneState.restingAt(new Vec3(3, 70, -12)),
+                            FlightState.restingAt(new Vec3(3, 70, -12)),
                             new ControlInput(0.7f, -0.3f, 0.2f, 0.1f),
                             DEFAULT_SUBSTEP,
                             37);
@@ -434,11 +451,37 @@ class QuadIntegratorTest {
         @Test
         void steppingDoesNotMutateTheStateItWasGiven() {
             QuadIntegrator integrator = new QuadIntegrator(QuadParameters.DEFAULT);
-            DroneState start = DroneState.restingAt(new Vec3(1, 2, 3));
+            FlightState start = FlightState.restingAt(new Vec3(1, 2, 3));
 
             integrator.step(start, new ControlInput(0.8f, 0.2f, 0.2f, 0.2f), DEFAULT_SUBSTEP);
 
-            assertEquals(DroneState.restingAt(new Vec3(1, 2, 3)), start);
+            assertEquals(FlightState.restingAt(new Vec3(1, 2, 3)), start);
+        }
+
+        @Test
+        void carriesTheControllersMemoryForwardRatherThanRestartingItEveryStep() {
+            // The seam that would silently break if someone reconstructed the controller state per
+            // step: an integral term that resets each time cannot accumulate, so the drone would
+            // never null a standing rate error however long it held the stick.
+            QuadIntegrator integrator = new QuadIntegrator(QuadParameters.DEFAULT);
+            ControlInput rolling = new ControlInput(0.5f, 0.3f, 0f, 0f);
+
+            FlightState before =
+                    simulate(
+                            integrator, FlightState.restingAt(Vec3.ZERO), rolling,
+                            DEFAULT_SUBSTEP, 80);
+            FlightState after = integrator.step(before, rolling, DEFAULT_SUBSTEP);
+
+            assertTrue(
+                    after.controller().roll().integral() > 0,
+                    "a sustained roll demand should have built up integral term");
+            // The derivative term is taken on the measurement, so what the controller remembers is
+            // the rate it was handed at the start of the step -- not the one the step produced.
+            assertEquals(
+                    before.drone().bodyRates().roll(),
+                    after.controller().roll().lastRate(),
+                    1e-12,
+                    "the controller should remember the rate it last measured");
         }
     }
 
@@ -448,7 +491,7 @@ class QuadIntegratorTest {
         @Test
         void rejectsANonPositiveOrNonFiniteStep() {
             QuadIntegrator integrator = new QuadIntegrator(QuadParameters.DEFAULT);
-            DroneState state = DroneState.restingAt(Vec3.ZERO);
+            FlightState state = FlightState.restingAt(Vec3.ZERO);
 
             assertThrows(
                     IllegalArgumentException.class,
@@ -462,8 +505,22 @@ class QuadIntegratorTest {
         }
 
         @Test
-        void rejectsMissingParameters() {
+        void rejectsMissingParametersGainsOrState() {
+            QuadIntegrator integrator = new QuadIntegrator(QuadParameters.DEFAULT);
+
             assertThrows(IllegalArgumentException.class, () -> new QuadIntegrator(null));
+            assertThrows(
+                    IllegalArgumentException.class,
+                    () -> new QuadIntegrator(QuadParameters.DEFAULT, null));
+            assertThrows(
+                    IllegalArgumentException.class,
+                    () -> integrator.step(null, ControlInput.NEUTRAL, DEFAULT_SUBSTEP));
+        }
+
+        @Test
+        void defaultsToTheDefaultTuneWhenNoneIsGiven() {
+            assertEquals(
+                    RatePidGains.DEFAULT, new QuadIntegrator(QuadParameters.DEFAULT).gains());
         }
     }
 }
