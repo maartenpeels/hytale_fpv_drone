@@ -34,6 +34,19 @@ class QuadIntegratorTest {
                 integrator, FlightState.restingAt(Vec3.ZERO), input, seconds / steps, steps);
     }
 
+    /** The roll rate a held stick settles on — one second, which #14 measured as ample. */
+    private static double settledRollRate(QuadIntegrator integrator, float stick) {
+        return simulate(
+                        integrator,
+                        FlightState.restingAt(Vec3.ZERO),
+                        new ControlInput(0.5f, stick, 0f, 0f),
+                        DEFAULT_SUBSTEP,
+                        240)
+                .drone()
+                .bodyRates()
+                .roll();
+    }
+
     @Nested
     class Hover {
 
@@ -407,6 +420,46 @@ class QuadIntegratorTest {
                     "mid-throttle authority " + atMidThrottle + " should dwarf idle " + atIdle);
         }
 
+        /**
+         * #15's curve, seen from the outside. The linear map this replaced could only ever put half
+         * of max rate at half stick; the whole point of expo is that it puts far less there, while
+         * still reaching the full rate at the endpoint.
+         */
+        @Test
+        void halfStickDemandsFarLessThanHalfTheMaxRateNowThatTheCurveIsNotLinear() {
+            QuadIntegrator integrator = new QuadIntegrator(QuadParameters.DEFAULT);
+            double maxRate = integrator.rates().roll().maxRate();
+
+            double atHalf = settledRollRate(integrator, 0.5f);
+            double atFull = settledRollRate(integrator, 1f);
+
+            assertEquals(maxRate, atFull, maxRate * 0.005, "full stick should reach the max rate");
+            assertTrue(
+                    atHalf < 0.5 * maxRate * 0.6,
+                    "half stick reached " + atHalf + ", which is not meaningfully below the "
+                            + (0.5 * maxRate) + " a linear map would give");
+        }
+
+        @Test
+        void fullStickReachesTheProfilesMaxRateOnEveryAxis() {
+            QuadIntegrator integrator = new QuadIntegrator(QuadParameters.DEFAULT);
+            BodyRates maxRates = integrator.rates().maxRates();
+
+            BodyRates settled =
+                    simulate(
+                                    integrator,
+                                    FlightState.restingAt(Vec3.ZERO),
+                                    new ControlInput(0.5f, 1f, 1f, 1f),
+                                    DEFAULT_SUBSTEP,
+                                    240)
+                            .drone()
+                            .bodyRates();
+
+            assertEquals(maxRates.roll(), settled.roll(), maxRates.roll() * 0.02);
+            assertEquals(maxRates.pitch(), settled.pitch(), maxRates.pitch() * 0.02);
+            assertEquals(maxRates.yaw(), settled.yaw(), maxRates.yaw() * 0.02);
+        }
+
         @Test
         void angularDragBleedsOffRotationOnceTheSticksCentre() {
             QuadIntegrator integrator = new QuadIntegrator(QuadParameters.DEFAULT);
@@ -505,13 +558,19 @@ class QuadIntegratorTest {
         }
 
         @Test
-        void rejectsMissingParametersGainsOrState() {
+        void rejectsMissingParametersGainsRatesOrState() {
             QuadIntegrator integrator = new QuadIntegrator(QuadParameters.DEFAULT);
 
-            assertThrows(IllegalArgumentException.class, () -> new QuadIntegrator(null));
             assertThrows(
                     IllegalArgumentException.class,
-                    () -> new QuadIntegrator(QuadParameters.DEFAULT, null));
+                    () -> new QuadIntegrator(null, RatePidGains.DEFAULT, RateProfile.DEFAULT));
+            assertThrows(
+                    IllegalArgumentException.class,
+                    () -> new QuadIntegrator(QuadParameters.DEFAULT, null, RateProfile.DEFAULT));
+            assertThrows(
+                    IllegalArgumentException.class,
+                    () -> new QuadIntegrator(QuadParameters.DEFAULT, RatePidGains.DEFAULT, null));
+            assertThrows(IllegalArgumentException.class, () -> new QuadIntegrator(null));
             assertThrows(
                     IllegalArgumentException.class,
                     () -> integrator.step(null, ControlInput.NEUTRAL, DEFAULT_SUBSTEP));
@@ -519,8 +578,10 @@ class QuadIntegratorTest {
 
         @Test
         void defaultsToTheDefaultTuneWhenNoneIsGiven() {
-            assertEquals(
-                    RatePidGains.DEFAULT, new QuadIntegrator(QuadParameters.DEFAULT).gains());
+            QuadIntegrator integrator = new QuadIntegrator(QuadParameters.DEFAULT);
+
+            assertEquals(RatePidGains.DEFAULT, integrator.gains());
+            assertEquals(RateProfile.DEFAULT, integrator.rates());
         }
     }
 }

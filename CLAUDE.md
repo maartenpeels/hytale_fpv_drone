@@ -160,10 +160,28 @@ drone that flies wrong in a way nobody can point at.
 
 Asset types available to the pack (`server/core/asset/type/`) include: `model`, `modelvfx`,
 `trail`, `particle`, `blocktype`, `blockset`, `camera`, `gamemode`, `physicalmaterial`,
-`projectile`, `portalworld`, and **`responsecurve`** — the last is the natural substrate for
-expo/rate curves.
+`projectile`, `portalworld` and `responsecurve`.
 
 `includes_pack = true` is already set in `gradle.properties`.
+
+#### `responsecurve` (evaluated for rate curves, rejected)
+
+It looked like the natural substrate for expo/rate curves. It is not usable for them, for three
+independent reasons — read from `server/core/asset/type/responsecurve/` in #15:
+
+- `ResponseCurve` is `com.hypixel.hytale.*`, so decision 10 bars it from `:fpv-core`, which is
+  where the math lives.
+- **Its domain is `[0, 1]`.** `ResponseCurve.computeY(double)` throws outside it — explicitly so in
+  `ExponentialResponseCurve`. Stick axes are `−1..1`, so every caller would have to fold the sign
+  itself, which is the interesting half of the problem.
+- **Its shapes cannot express a rate curve.** The registered curves are `Exponential`, `Logistic`,
+  `SineWave` and `Switch`, each a fixed formula over slope/exponent/shift. None can express an
+  independent near-centre sensitivity *and* a pinned full-stick endpoint, which is what a rate
+  curve is; `ExponentialResponseCurve` has no notion of a maximum at all.
+
+Rates are therefore pure `:fpv-core` math — `RateCurve`/`RateProfile`, Betaflight "Actual Rates".
+See `docs/plans/15.md`. This does not rule the asset type out for something else; it rules it out
+for rates.
 
 ### UI
 
