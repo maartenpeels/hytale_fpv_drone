@@ -119,10 +119,15 @@ class QuadParametersTest {
         }
 
         @Test
-        void rejectsANonPositiveRateTimeConstantBecauseItDividesTheTorqueDemand() {
+        void rejectsAnAxisWithNoTorqueAuthority() {
+            // Authority scales the achieved thrust differential into angular acceleration, so zero
+            // is an axis that cannot be commanded at all.
             assertThrows(
                     IllegalArgumentException.class,
-                    () -> QuadParameters.builder().rateTimeConstant(0).build());
+                    () -> QuadParameters.builder().rollPitchAuthority(0).build());
+            assertThrows(
+                    IllegalArgumentException.class,
+                    () -> QuadParameters.builder().yawAuthority(-1).build());
         }
     }
 }
