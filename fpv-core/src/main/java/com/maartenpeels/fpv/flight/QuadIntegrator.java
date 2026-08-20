@@ -91,17 +91,19 @@ public final class QuadIntegrator {
         }
 
         DroneState drone = state.drone();
-        BodyRates rates = drone.bodyRates();
+        // Named for RatePid.update's parameter, and deliberately not "rates": that is the field
+        // holding the stick-to-rate curves, and the two would be one typo apart in this method.
+        BodyRates measured = drone.bodyRates();
         RatePidUpdate control =
                 this.rateController.update(
-                        state.controller(), this.rates.demand(input), rates, dt);
+                        state.controller(), this.rates.demand(input), measured, dt);
         TorqueDemand torque = control.torque();
 
         MotorThrusts thrusts =
                 MotorMixer.mix(input.throttle(), torque.roll(), torque.pitch(), torque.yaw())
                         .thrusts();
 
-        BodyRates nextRates = rates.plus(this.angularAcceleration(drone, thrusts).scale(dt));
+        BodyRates nextRates = measured.plus(this.angularAcceleration(drone, thrusts).scale(dt));
         // Semi-implicit: attitude turns at the rate the drone has *after* this step's torque, which
         // keeps rotation from lagging a step behind the sticks.
         var nextOrientation = drone.orientation().integrate(nextRates.toBodyAxes(), dt);

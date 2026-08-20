@@ -122,7 +122,8 @@ public record RateCurve(double centreSensitivity, double maxRate, double expo) {
 
     /**
      * The same endpoint and curvature, with centre sensitivity raised to it — #13's linear
-     * stick-to-rate map, recovered exactly. The reference tune, not a useful one.
+     * stick-to-rate map, recovered to within a few ULP (see the class javadoc on why not exactly).
+     * The reference tune, not a useful one.
      */
     public RateCurve asLinear() {
         return new RateCurve(this.maxRate, this.maxRate, this.expo);
