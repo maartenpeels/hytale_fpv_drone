@@ -30,7 +30,6 @@ hytaleTools {
     patchline = property("patchline").toString()
     injectServerJavadocsIntoSources = property("injectServerJavadocsIntoSources").toString().toBoolean()
     generateAssetsBinary = property("generateAssetsBinary").toString().toBoolean()
-    // hytaleHomeOverride = property("hytaleHomeOverride").toString()
 }
 
 // The Hytale server loads one jar, so :fpv-core's classes have to travel inside the plugin

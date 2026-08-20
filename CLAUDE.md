@@ -308,13 +308,39 @@ Notes that matter when changing the build:
 - The `hytale-gradle-plugin` buildscript requires **JVM 25 to run Gradle itself**, not just to
   compile. On a machine whose default JDK is older:
   `JAVA_HOME=$(/usr/libexec/java_home -v 25) ./gradlew build`.
+- **The local-install override resolves `Assets.zip` only.** Every usage in the Gradle plugin
+  is assets-related; it has no effect on the server jar. Two traps, both verified in
+  `hytale-gradle-plugin-1.0.48` sources:
+  - The gradle property is **`hytale_home`** (or `hytools.hytale.home`) —
+    `HytaleExtensionDefaults` conventions `ext.hytaleHomeOverride` from *those* names. A
+    property literally named `hytaleHomeOverride` is read by nothing, so setting it in
+    `~/.gradle/gradle.properties` is a silent no-op. `hytaleHomeOverride` is the *extension
+    field*, assignable only from a build script.
+  - You almost certainly do not need it. When the override is empty,
+    `DownloadAssetsZipTask.resolveLocalAssetsZip` auto-detects per OS —
+    `~/Library/Application Support/Hytale` on macOS, `~/AppData/Roaming/Hytale` on Windows.
+    Only a non-standard install path needs the override. What setting it changes is that
+    `runServer` reads the install's `Assets.zip` directly and stops depending on
+    `downloadAssetsZip`.
+
+### How `runServer` actually works
+
+Worth knowing before hand-rolling any launcher. `runServer` is a `JavaExec` that runs
+`com.hypixel.hytale.Main` with a classpath of your compiled classes + resources + runtime deps
++ `vineServerJar` (the Maven artifact `com.hypixel.hytale:Server`), passing
+`--assets=<absolute path>`, with working directory `run/`. `prepareRunServer` stages mod jars
+into `run/mods`.
+
+**It never creates or reads a `HytaleServer.jar`, and never copies `Assets.zip`.** A packaged
+server distribution does exist — `~/Library/Application Support/Hytale/install/release/package/game/latest/Server/`
+holds `HytaleServer.jar` and `HytaleServer.aot.config` — but the Gradle dev flow does not use
+it. Do not construct that layout by hand to satisfy external tooling; point the tooling at
+`:fpv-plugin:jar` and `runServer` instead.
 
 ---
 
 ## Known repo issues (unfixed)
 
-- `gradle.properties`: `hytaleHomeOverride` is still the placeholder path (currently commented
-  out in `fpv-plugin/build.gradle.kts`).
 - The plugin jar is named from `mod_name`, so it builds as `FPV Drone-0.0.1.jar` — with a
   space. Switch `archiveBaseName` to `mod_id` if that ever causes trouble.
 - No `LICENSE` file, though `mod_license = MIT`.
