@@ -74,6 +74,15 @@ These are read from the decompiled sources, not inferred. They constrain the des
   `gliding`, …). There are no analog aux channels — **no AUX switches, no fifth axis.**
 - `Direction` is `{float yaw, float pitch, float roll}` everywhere in the protocol. Roll is
   representable.
+- **`Direction`'s signs disagree with `ControlInput`'s, on two axes out of three.** Read from
+  `Vector3dUtil.setYawPitch` (`math/vector/Vector3dUtil.java:57-63`), which builds a direction
+  vector as `x = -sin(yaw)·cos(pitch)`, `y = sin(pitch)`, `z = -cos(yaw)·cos(pitch)`. Therefore:
+  - `y = sin(pitch)` means **Hytale's `pitch` is positive nose-*up***, the opposite of
+    `ControlInput.pitch`, which is transmitter convention and positive nose-*down*. Any
+    camera or entity-rotation adapter **must negate it**.
+  - at yaw 0 the direction is `(0, 0, -1)`, so **forward is `−Z`** — which is why `:fpv-core`
+    picked `−Z` forward too, keeping this boundary a sign flip rather than a 180° offset.
+  - yaw increases toward `−X`, i.e. **opposite to a right-handed yaw about `+Y`**. Also negate.
 - **Controllers are not supported by Hytale yet.** Expected in update 5. Until then keyboard
   and mouse drive `wishMovement`/`lookOrientation`, which quantises the stick vector to
   corners. Packet handling should not need to change when controllers land.
@@ -104,6 +113,23 @@ These are read from the decompiled sources, not inferred. They constrain the des
 - Collision is available server-side: `server/core/modules/collision/` has
   `MovingBoxBoxCollisionEvaluator` (**swept AABB**), `CollisionMath`, `BlockCollisionData`,
   `CollisionResult`, `CollisionFilter`; plus `math/raycast/RaycastAABB`.
+
+#### World units and axes
+
+These three set the units `:fpv-core` works in. Getting them wrong is not a crash, it is a
+drone that flies wrong in a way nobody can point at.
+
+- **Gravity is `32.0`, not `9.81`.** `PhysicsConstants.GRAVITY_ACCELERATION = 32.0`
+  (`server/core/modules/physics/util/PhysicsConstants.java:4`). Hytale's world is **not
+  metric-consistent** — if a block is a metre, gravity is ~3.3× real. A drone modelled on real
+  gravity feels lunar next to everything else in the world. `QuadParameters.DEFAULT_GRAVITY`
+  matches the server figure deliberately; do not "fix" it to 9.81.
+- **`+Y` is up.** `ForceProviderStandard` computes `-gravity * mass` and adds it to `force.y`
+  (`server/core/modules/physics/util/ForceProviderStandard.java:36,45`).
+- **`protocol.Position` is `double x, y, z`** (`protocol/Position.java:17-19`) — *not* float,
+  despite `Direction` being float. So `:fpv-core` carrying position and velocity as `double`
+  costs nothing at the packet boundary, and avoids the drift `float` accumulates at ~240
+  integration steps per second.
 
 ### Tick rate
 
