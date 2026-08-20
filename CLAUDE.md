@@ -360,7 +360,10 @@ Every command below was executed at install time on this repo and passed.
 ./gradlew build                                        # full build, ~5s warm
 ```
 
-Prefix with `JAVA_HOME=$(/usr/libexec/java_home -v 25)` if the default JDK is older.
+Prefix with `JAVA_HOME=$(/usr/libexec/java_home -v 25)` if the default JDK is older. If
+`/usr/libexec/java_home -v 25` reports no match, there is no JDK 25 on the machine and no
+prefix will help — install one first (`brew install --cask temurin@25`, or JetBrains Runtime
+for hot reload; this box has JBR 25.0.4 and OpenJDK 25.0.1). Not run at install time.
 
 No lint or format command exists in this repo — no Spotless, Checkstyle or formatter plugin is
 configured. Do not invent one; add a real plugin first if you want a lint loop.
