@@ -3,6 +3,7 @@ package com.maartenpeels.fpv.plugin.command;
 import com.hypixel.hytale.server.core.Message;
 import com.hypixel.hytale.server.core.command.system.AbstractCommand;
 import com.hypixel.hytale.server.core.command.system.CommandContext;
+import com.hypixel.hytale.server.core.permissions.provider.HytalePermissionsProvider;
 import com.maartenpeels.FPVDrone;
 import com.maartenpeels.fpv.plugin.config.FpvConfig;
 
@@ -22,6 +23,7 @@ public class FpvCommand extends AbstractCommand {
 
     public FpvCommand(@Nonnull FPVDrone plugin) {
         super("fpv", "FPV drone flight");
+        this.setPermissionGroups(HytalePermissionsProvider.GROUP_ADVENTURER);
         this.plugin = plugin;
     }
 
