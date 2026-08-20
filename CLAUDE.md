@@ -300,6 +300,11 @@ Notes that matter when changing the build:
 - Unqualified task names resolve across the build, so `./gradlew runServer`,
   `./gradlew updatePluginManifest` and `./gradlew setupHytaleDev` still work from the root
   without a `:fpv-plugin:` prefix.
+- **The plugin jar moved.** It is built at `fpv-plugin/build/libs/`, not `build/libs/` as it
+  was before the split. The root `shadowJar` task exists purely as a compatibility shim for
+  external tooling that expects the old task name and the old path — it aliases
+  `:fpv-plugin:jar` and copies the result to the root `build/libs/`. There is no Shadow plugin
+  and no separate fat-jar step; `:fpv-plugin:jar` is already fat.
 - The `hytale-gradle-plugin` buildscript requires **JVM 25 to run Gradle itself**, not just to
   compile. On a machine whose default JDK is older:
   `JAVA_HOME=$(/usr/libexec/java_home -v 25) ./gradlew build`.

@@ -11,6 +11,23 @@ plugins {
 
 val javaVersion = property("java_version").toString().toInt()
 
+// Compatibility shim for external tooling that invokes `shadowJar` and/or reads the plugin
+// jar from the ROOT `build/libs`. Neither is a Gradle default here: this project has never
+// had a `shadowJar` task, and the module split moved the jar to `fpv-plugin/build/libs`.
+//
+// A separate shadow/fat-jar step is not needed -- `:fpv-plugin:jar` is already fat. It
+// bundles the Hytale asset-editor runtime (added by hytale-tools) and unpacks :fpv-core via
+// the `bundledCore` configuration. So this only aliases that task and republishes its output
+// at the pre-split location.
+//
+// Delete this if the external tooling is pointed at `:fpv-plugin:jar` instead.
+tasks.register<Copy>("shadowJar") {
+    group = "build"
+    description = "Alias for :fpv-plugin:jar, copied to the root build/libs for external tooling."
+    from(project(":fpv-plugin").tasks.named<Jar>("jar"))
+    into(layout.buildDirectory.dir("libs"))
+}
+
 subprojects {
     group = rootProject.property("group").toString()
     version = rootProject.property("version").toString()
