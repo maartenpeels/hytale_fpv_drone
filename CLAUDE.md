@@ -412,7 +412,10 @@ mutates the local Hytale dev environment, the second blocks on a running server.
 - Tracker: GitHub Issues — `gh issue view <n>`, `gh issue create --title <t> --body <b>`,
   subtasks are separate issues referencing the parent (GitHub has no native subtask)
 - VCS: GitHub — `gh pr create --base <branch> --fill`, `gh pr view <n>`, `gh pr diff <n>`
-- Auth: `gh` keyring, account `maartenpeels2` (scopes `repo`, `read:org`, `gist`); git over SSH
+- Auth: `gh` keyring, account **`maartenpeels`** (scopes `repo`, `read:org`, `gist`); git over
+  SSH. The keyring also holds `maartenpeels2`, which is **not a collaborator** on this repo —
+  active under it, `gh pr create` fails with "must be a collaborator". Check with
+  `gh auth status`; switch with `gh auth switch -u maartenpeels`.
 - No Jira in this project — `jira` is on PATH for other work; ignore it here
 
 ## Git workflow
