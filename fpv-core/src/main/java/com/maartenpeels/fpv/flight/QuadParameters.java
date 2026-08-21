@@ -81,7 +81,13 @@ public record QuadParameters(
      *
      * <p>Returns more than {@code 1} for an airframe whose thrust cannot beat its own weight, which
      * is honest rather than useful — such a quad simply cannot hover, and clamping would hide that.
-     * Callers turning this into a {@code ControlInput} throttle need to handle the case.
+     * Callers turning this into a {@code ControlInput} throttle need to handle the case; the one that
+     * does is {@code PilotInputMapper}'s constructor, which rejects it rather than clamping, for the
+     * reasons recorded there.
+     *
+     * <p>This is also the number a centred throttle stick must command — see
+     * {@code PilotInputMapper}. It is passed in from wherever the airframe is chosen rather than
+     * re-derived at the input boundary, so a retune moves both together. #45 was the two disagreeing.
      */
     public double hoverCollective() {
         return Math.sqrt(1.0 / this.thrustToWeight);

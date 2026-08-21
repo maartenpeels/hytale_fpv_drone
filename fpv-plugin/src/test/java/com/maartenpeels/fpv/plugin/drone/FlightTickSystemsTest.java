@@ -249,7 +249,9 @@ class FlightTickSystemsTest {
                 f.inputs().offer(pilotId, PilotInputSample.lookRelative(0.0, 0.0, 2.5, 0.5));
                 f.inputs().slotOf(pilotId).nextInput(
                         new com.maartenpeels.fpv.control.PilotInputMapper(
-                                com.maartenpeels.fpv.control.PilotInputMapping.DEFAULT),
+                                com.maartenpeels.fpv.control.PilotInputMapping.DEFAULT,
+                                com.maartenpeels.fpv.flight.QuadParameters.DEFAULT
+                                        .hoverCollective()),
                         TICK_SECONDS);
                 f.sessions().land(store, pilot);
                 f.sessions().launch(store, pilot, SPAWN, Rotation3f.IDENTITY, null);
