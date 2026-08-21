@@ -45,11 +45,11 @@ import java.util.UUID;
  * @param inputs the input buffer the flight systems open and close slots in. Shared, exactly as
  *     {@code FPVDrone} shares one instance between its ECS systems and its packet watcher.
  */
-record DroneTestFixture(
+public record DroneTestFixture(
         FlightComponentTypes types, FlightSessions sessions, PilotInputBuffer inputs) {
 
     /** Registers every component, then every lifecycle system, into the harness. */
-    static DroneTestFixture install(@Nonnull HytaleEcsHarness harness) {
+    public static DroneTestFixture install(@Nonnull HytaleEcsHarness harness) {
         ComponentRegistry<EntityStore> registry = harness.registry();
 
         // Registration order matters: registerSystem validates a system's query against the
@@ -123,7 +123,7 @@ record DroneTestFixture(
      * one — {@code Player.saveConfig} asserts {@code UUIDComponent} non-null
      * (`server/core/entity/entities/Player.java:303-305`).
      */
-    Ref<EntityStore> newPilot(@Nonnull Store<EntityStore> store) {
+    public Ref<EntityStore> newPilot(@Nonnull Store<EntityStore> store) {
         return store.addEntity(
                 Archetype.of(this.types.transform(), this.types.uuid()), AddReason.SPAWN);
     }

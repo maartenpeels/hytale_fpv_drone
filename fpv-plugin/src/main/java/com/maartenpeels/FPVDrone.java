@@ -17,6 +17,7 @@ import com.hypixel.hytale.server.core.modules.entity.tracker.EntityTrackerSystem
 import com.hypixel.hytale.server.core.modules.entity.tracker.NetworkId;
 import com.hypixel.hytale.server.core.plugin.JavaPlugin;
 import com.hypixel.hytale.server.core.plugin.JavaPluginInit;
+import com.hypixel.hytale.server.core.universe.PlayerRef;
 import com.hypixel.hytale.server.core.universe.world.storage.EntityStore;
 import com.hypixel.hytale.server.core.util.Config;
 import com.maartenpeels.fpv.control.PilotInputMapper;
@@ -25,6 +26,9 @@ import com.maartenpeels.fpv.flight.FlightTick;
 import com.maartenpeels.fpv.flight.QuadIntegrator;
 import com.maartenpeels.fpv.flight.QuadParameters;
 import com.maartenpeels.fpv.flight.SubstepListener;
+import com.maartenpeels.fpv.plugin.camera.DroneCamera;
+import com.maartenpeels.fpv.plugin.camera.DroneCameraSystems;
+import com.maartenpeels.fpv.plugin.camera.PlayerRefSink;
 import com.maartenpeels.fpv.plugin.command.FpvCommand;
 import com.maartenpeels.fpv.plugin.config.FpvConfig;
 import com.maartenpeels.fpv.plugin.drone.DroneComponent;
@@ -64,6 +68,7 @@ public class FPVDrone extends JavaPlugin {
     private final PilotInputBuffer pilotInputs = new PilotInputBuffer();
 
     private FlightSessions flightSessions;
+    private DroneCamera droneCamera;
 
     /**
      * The deregistration key for our inbound packet watcher.
@@ -83,7 +88,7 @@ public class FPVDrone extends JavaPlugin {
     @Override
     protected void setup() {
         this.config.save();
-        this.flightSessions = installDroneFeature();
+        installDroneFeature();
         this.getCommandRegistry().registerCommand(new FpvCommand(this));
     }
 
@@ -120,8 +125,7 @@ public class FPVDrone extends JavaPlugin {
      * them, because {@code registerSystem} validates a system's query against the registry before
      * registering that system's own component declarations.
      */
-    @Nonnull
-    private FlightSessions installDroneFeature() {
+    private void installDroneFeature() {
         ComponentRegistryProxy<EntityStore> registry = this.getEntityStoreRegistry();
 
         FlightComponentTypes types = new FlightComponentTypes(
@@ -155,7 +159,21 @@ public class FPVDrone extends JavaPlugin {
                 types, EntityTrackerSystems.FIND_VISIBLE_ENTITIES_GROUP, afterCollectVisible));
 
         installFlightTick(registry, types);
-        return new FlightSessions(types);
+
+        // #19. AttachOnSession is a RefChangeSystem, not a RefSystem: a session is a component put
+        // onto an already-live player entity, and RefSystem's callbacks only fire for entity
+        // add/remove. See DroneCameraSystems.AttachOnSession.
+        //
+        // PlayerRefSink is the one line of the camera feature a harness cannot run, which is
+        // exactly why it is a separate injected object -- see PilotSink.
+        this.droneCamera = new DroneCamera(
+                types,
+                new PlayerRefSink(PlayerRef.getComponentType()),
+                this.config.get().cameraTuning());
+        registry.registerSystem(new DroneCameraSystems.AttachOnSession(types, this.droneCamera));
+        registry.registerSystem(new DroneCameraSystems.PushDrivenCamera(types, this.droneCamera));
+
+        this.flightSessions = new FlightSessions(types);
     }
 
     /**
@@ -212,5 +230,18 @@ public class FPVDrone extends JavaPlugin {
     @Nullable
     public FlightSessions getFlightSessions() {
         return this.flightSessions;
+    }
+
+    /**
+     * The FPV camera: attach, detach, and the live tuning. {@code null} until {@code setup()} has
+     * run.
+     *
+     * <p>Exposed because {@code /fpv camera set} mutates the tuning at runtime. #19 is unverifiable
+     * by test, so the feedback loop is a human flying and turning knobs; a rebuild per knob would
+     * make that loop useless.
+     */
+    @Nullable
+    public DroneCamera getDroneCamera() {
+        return this.droneCamera;
     }
 }
