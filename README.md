@@ -49,8 +49,8 @@ milestones (tuning, racing, multiplayer, long-range flight) are epics on the
   On macOS, `/usr/libexec/java_home -v 25` reporting no match means there is no JDK 25 installed
   and no prefix will help — install one first (`brew install --cask temurin@25`).
 - **JetBrains Runtime is recommended** if you want hot reload while the dev server is running.
-  `./gradlew hytaleJvmDoctor` reports which JVM Gradle resolved and whether enhanced class
-  redefinition is available.
+  `./gradlew hytaleJvmDoctor` reports which JVM the dev server run resolved to and whether
+  enhanced class redefinition is available.
 - A **Hytale installation**, for its `Assets.zip`. The standard per-OS install location is
   auto-detected; you only need to configure anything if yours is somewhere unusual.
 - No Gradle install needed — the wrapper is committed.
@@ -126,14 +126,14 @@ fpv-core/      pure Java + JUnit 5. Zero Hytale dependencies.
 fpv-plugin/    the Hytale plugin. Adapters only. Depends on :fpv-core.
 ```
 
-**`:fpv-core`** holds everything that can be reasoned about and tested without a game: the quad
-integrator, PID controller, rate/expo curves, swept gate-crossing math, race state machine, pilot
-profile validation, leaderboard model. It is deterministic — physics is a function of
-`(state, input, dt)`.
+**`:fpv-core`** owns everything that can be reasoned about and tested without a game. Today that
+is the quad integrator, the PID rate loop and the rate/expo curves; swept gate-crossing math, the
+race state machine, pilot-profile validation and the leaderboard model belong here too and land
+with their milestones. It is deterministic — physics is a function of `(state, input, dt)`.
 
-**`:fpv-plugin`** holds only the boundary: ECS components and systems, packet handling, commands,
-UI pages, persistence, entity lifecycle. It translates Hytale packets into core's types and core's
-output back into packets.
+**`:fpv-plugin`** owns only the boundary — ECS components and systems, packet handling, commands,
+UI pages, persistence, entity lifecycle — translating Hytale packets into core's types and core's
+output back into packets. So far that is the entry point, config and one command; see Status above.
 
 The reason is blunt: the Hytale server API is undocumented, decompiled, pinned to a version range,
 and still changing. When it breaks, only the adapter layer should break. The build enforces this —
@@ -142,7 +142,7 @@ the Hytale Gradle plugin is applied *only* in `:fpv-plugin`, so a `com.hypixel.*
 are unpacked into the plugin jar, because the server loads a single jar.
 
 ```
-build.gradle.kts       shared Java/test config only — the root is not itself a Java project
+build.gradle.kts       shared Java/test config and the shadowJar shim — not itself a Java project
 settings.gradle.kts    module includes
 gradle.properties      single source of mod identity
 CLAUDE.md              the durable engineering context (see below)
@@ -167,7 +167,7 @@ The one workflow rule that matters most:
 Practically:
 
 - Work from a GitHub issue; each non-trivial change gets a design note in `docs/plans/<issue>.md`.
-- Branch as `<type>/<slug>` (`feat/`, `fix/`, `chore/`, `docs/`); never push to `main`.
+- Branch as `<type>/<slug>` — `feat/`, `fix/`, `chore/`; never push to `main`.
 - Every physics, curve, crossing and race-state change lands with a unit test. Flying around is not
   verification — these are cheap to test and impossible to eyeball.
 - CI runs `./gradlew build` on JDK 25 for every push and pull request to `main`.
