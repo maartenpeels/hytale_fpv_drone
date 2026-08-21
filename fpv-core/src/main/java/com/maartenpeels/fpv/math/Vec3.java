@@ -11,6 +11,11 @@ package com.maartenpeels.fpv.math;
  * <p>The flight model's frame convention — right-handed, {@code +Y} up, {@code −Z} forward,
  * {@code +X} right — is documented on {@link com.maartenpeels.fpv.flight.DroneState}. This type
  * is frame-agnostic; it is used for both world-frame and body-frame quantities.
+ *
+ * <p>Components are held free of {@code −0.0}, so that two numerically equal vectors are always
+ * {@code equals} and hash alike — see {@link SignedZero}, which is where that is explained. It
+ * matters most for the axis-aligned normals {@link com.maartenpeels.fpv.collision.SweptAabb} hands
+ * out, since two of their three components are exactly zero.
  */
 public record Vec3(double x, double y, double z) {
 
@@ -18,6 +23,18 @@ public record Vec3(double x, double y, double z) {
 
     /** World up, and the axis a level drone's thrust points along. */
     public static final Vec3 UP = new Vec3(0, 1, 0);
+
+    /**
+     * Not a no-op. {@code negated()}, {@code scale} by a negative and {@code cross} of parallel
+     * vectors all land on {@code −0.0}, which record equality treats as unequal to {@code 0.0}.
+     * Doing it here rather than per operation is what makes that impossible to reintroduce; read
+     * {@link SignedZero} before changing or removing this.
+     */
+    public Vec3 {
+        x = SignedZero.canonical(x);
+        y = SignedZero.canonical(y);
+        z = SignedZero.canonical(z);
+    }
 
     public Vec3 plus(Vec3 other) {
         return new Vec3(this.x + other.x, this.y + other.y, this.z + other.z);

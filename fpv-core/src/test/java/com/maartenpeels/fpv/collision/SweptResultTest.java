@@ -78,8 +78,11 @@ class SweptResultTest {
 
         @Test
         void normalisesNegativeZeroNormalComponentsBecauseTheRotateAndRebuildPathProducesThem() {
-            // Vec3.negated() and Quat.rotate() both emit -0.0, and the javadoc invites callers to
-            // rotate a normal into another frame and rebuild a Contact from it.
+            // Still Contact's contract, but since #38 it is Vec3's canonical constructor that keeps
+            // it rather than a collapse in Contact's own constructor. Kept as a test because the
+            // guarantee is what the javadoc promises callers -- it invites them to rotate a normal
+            // into another frame and rebuild a Contact -- and it should keep holding wherever the
+            // implementation happens to live.
             SweptResult.Contact rebuilt = contactWithNormal(new Vec3(1, 0, 0).negated());
 
             assertEquals(new Vec3(-1, 0, 0), rebuilt.normal());

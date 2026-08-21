@@ -1,5 +1,6 @@
 package com.maartenpeels.fpv.collision;
 
+import com.maartenpeels.fpv.math.SignedZero;
 import com.maartenpeels.fpv.math.Vec3;
 
 /**
@@ -52,7 +53,11 @@ public sealed interface SweptResult {
      *     collision response wants, and the sign {@link #enteredAlong} reads for direction.
      *     {@link SweptAabb} always produces an axis-aligned normal; the invariant enforced here is
      *     only that it is unit length, so a caller working in a rotated frame can rotate one back
-     *     into world space and rebuild.
+     *     into world space and rebuild. That rebuild is safe to compare against a literal, because
+     *     {@link Vec3} itself holds its components free of {@code −0.0} — which
+     *     {@link Vec3#negated()} and {@link com.maartenpeels.fpv.math.Quat#rotate} would otherwise
+     *     produce, making an arithmetically correct normal unequal to that literal. See
+     *     {@link SignedZero}.
      */
     record Contact(double entryTime, double exitTime, Vec3 normal) implements SweptResult {
 
@@ -61,8 +66,10 @@ public sealed interface SweptResult {
 
         public Contact {
             // A displacement that is negative on the entering axis divides an exact zero into −0.0,
-            // which compares unequal to 0.0 under IEEE bit equality. No caller should have to know.
-            entryTime = entryTime == 0.0 ? 0.0 : entryTime;
+            // which record equality treats as unequal to 0.0 (see SignedZero). Needed here and not
+            // only in Vec3 because entryTime is a bare double, so nothing upstream can canonicalise
+            // it -- unlike `normal`, which Vec3's own constructor now handles.
+            entryTime = SignedZero.canonical(entryTime);
 
             if (!Double.isFinite(entryTime) || entryTime < 0.0 || entryTime >= 1.0) {
                 throw new IllegalArgumentException(
@@ -76,16 +83,6 @@ public sealed interface SweptResult {
                     || Math.abs(normal.length() - 1.0) > NORMAL_TOLERANCE) {
                 throw new IllegalArgumentException("normal must be a unit vector but was " + normal);
             }
-
-            // Same reason, and this one matters because the javadoc below invites callers to rotate
-            // a normal into another frame and rebuild: Vec3.negated() and Quat.rotate() both emit
-            // −0.0 components, which would make an arithmetically correct normal unequal to the
-            // literal a caller compares it against.
-            normal = new Vec3(zeroed(normal.x()), zeroed(normal.y()), zeroed(normal.z()));
-        }
-
-        private static double zeroed(double component) {
-            return component == 0.0 ? 0.0 : component;
         }
 
         /**

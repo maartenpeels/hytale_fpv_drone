@@ -2,6 +2,7 @@ package com.maartenpeels.fpv.flight;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.maartenpeels.fpv.math.Quat;
@@ -66,14 +67,11 @@ class BodyRatesTest {
 
         @Test
         void zeroRatesMapToAZeroAxisVector() {
-            // Componentwise, because negating 0.0 yields -0.0 and record equality distinguishes
-            // the two. Harmless downstream -- Quat.integrate multiplies it away -- but not worth
-            // asserting exactly.
-            Vec3 axes = BodyRates.ZERO.toBodyAxes();
-
-            assertEquals(0.0, axes.x(), 0.0);
-            assertEquals(0.0, axes.y(), 0.0);
-            assertEquals(0.0, axes.z(), 0.0);
+            // Asserted directly rather than componentwise. This used to need three loose assertions
+            // because toBodyAxes() negates, and negating 0.0 gave -0.0, which record equality
+            // distinguishes from 0.0. #38 fixed that in Vec3's constructor, so Vec3.ZERO is now the
+            // honest expectation.
+            assertEquals(Vec3.ZERO, BodyRates.ZERO.toBodyAxes());
         }
     }
 
@@ -92,6 +90,64 @@ class BodyRatesTest {
             assertTrue(new BodyRates(1, 2, 3).isFinite());
             assertFalse(new BodyRates(Double.NaN, 0, 0).isFinite());
             assertFalse(new BodyRates(0, Double.POSITIVE_INFINITY, 0).isFinite());
+        }
+    }
+
+    /**
+     * #38. The third record in the family that needs it, and it qualifies on the same two grounds as
+     * {@code Vec3} and {@code Quat}: it does its own sign-flipping arithmetic — {@link
+     * BodyRates#toBodyAxes()} negates all three components, and {@code QuadIntegrator} applies
+     * angular drag as {@code scale(-angularDrag)} — and it has a canonical {@code ZERO} that callers
+     * compare against.
+     *
+     * <p>Bit-level assertions where value-level ones would pass regardless.
+     */
+    @Nested
+    class SignedZero {
+
+        private static final long NEGATIVE_ZERO_BITS = Double.doubleToRawLongBits(-0.0);
+
+        private static void assertNoNegativeZero(BodyRates rates) {
+            for (double component : new double[] {rates.roll(), rates.pitch(), rates.yaw()}) {
+                assertNotEquals(
+                        NEGATIVE_ZERO_BITS,
+                        Double.doubleToRawLongBits(component),
+                        component + " of " + rates + " must not be negative zero");
+            }
+        }
+
+        @Test
+        void scalingZeroRatesByANegativeStaysEqualToZero() {
+            // This is how QuadIntegrator applies angular drag, and a drone hovering level is at
+            // exactly zero rates -- so it is the common case, not an edge case.
+            assertEquals(BodyRates.ZERO, BodyRates.ZERO.scale(-1));
+            assertEquals(BodyRates.ZERO.hashCode(), BodyRates.ZERO.scale(-1).hashCode());
+        }
+
+        @Test
+        void scalingByZeroStaysEqualToZeroWhateverTheSignOfTheInput() {
+            assertEquals(BodyRates.ZERO, new BodyRates(-1, -2, -3).scale(0));
+            assertEquals(BodyRates.ZERO, new BodyRates(1, 2, 3).scale(0));
+        }
+
+        @Test
+        void everyOperationThatCanLandOnAZeroKeepsItPositive() {
+            assertNoNegativeZero(BodyRates.ZERO.scale(-1));
+            assertNoNegativeZero(new BodyRates(-1, -2, -3).scale(0));
+            assertNoNegativeZero(new BodyRates(-0.0, -0.0, -0.0));
+            assertNoNegativeZero(new BodyRates(1, 2, 3).plus(new BodyRates(-1, -2, -3)));
+        }
+
+        @Test
+        void normalisationDoesNotDisturbNonZeroRates() {
+            // The fix must only ever change the sign of a zero -- an altered rate would be altered
+            // flight behaviour.
+            BodyRates rates = new BodyRates(-0.1, 1.0 / 3.0, -12.5);
+
+            assertEquals(Double.doubleToRawLongBits(-0.1), Double.doubleToRawLongBits(rates.roll()));
+            assertEquals(
+                    Double.doubleToRawLongBits(1.0 / 3.0), Double.doubleToRawLongBits(rates.pitch()));
+            assertEquals(Double.doubleToRawLongBits(-12.5), Double.doubleToRawLongBits(rates.yaw()));
         }
     }
 }
