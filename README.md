@@ -1,161 +1,177 @@
-# Hytale Plugin Template
+# FPV Drone
 
-A ready-to-use starting point for creating Hytale server plugins with Java, _or Kotlin_. If you've
-been using the Asset Editor and want to start writing server-side logic — custom commands, event
-handling, gameplay systems — this is the simplest place to begin.
+A Hytale server plugin that adds simulated FPV (first-person view) quadcopter flight.
 
-This template uses the [Hytale Gradle Plugin](https://github.com/AzureDoom/Hytale-Gradle-Plugin),
-a Gradle plugin maintained by AzureDoom for Hytale mod/plugin development. It handles the repetitive
-project setup work for you, including manifest generation, validation, local server runs, IDE source
-setup, and optional hosted Hytale Javadoc injection.
+Not a creative-mode fly toy: the drone is a **real flight model simulated on the server** — thrust,
+angular rates, a PID rate loop, drag and momentum — so it behaves like a quad and can be tuned like
+one. Everything else the project is aiming at is built on that: rate/expo and PID tuning per pilot,
+race courses with custom gates, authoritative lap timing, leaderboards, and spectating another
+pilot's drone.
 
-## How to start
+Java 25 · Hytale server `>=0.5.3 <0.6.0` · MIT
 
-1. Copy the template by downloading it or using the **Use this template** button.
-2. [Configure or install the Java SDK](https://hytalemodding.dev/en/docs/guides/plugin/setting-up-env)
-   to use Java 25. JetBrains Runtime is recommended for the best hot-reload/debugging experience.
-3. Open the project in your favorite IDE. We recommend
-   [IntelliJ IDEA](https://www.jetbrains.com/idea/download).
-4. Update the project values in `gradle.properties`:
-    - `rootProject.name` in `settings.gradle.kts`
-    - `group`
-    - `manifest_group`
-    - `mod_name`
-    - `mod_id`
-    - `main_class`
-    - `mod_author`
-    - `mod_description`
-    - `mod_url`
-5. Optionally run `./gradlew` if your IDE does not automatically sync the project.
-6. Prepare the Hytale development environment:
+---
 
-   ```bash
-   ./gradlew setupHytaleDev
-   ```
+## Status: phase 0, not yet flyable
 
-7. Run the local development server:
+The project's first milestone exists to answer one question honestly, before anything is built on
+top of it:
 
-   ```bash
-   ./gradlew runServer
-   ```
+> Does a server-simulated drone at 30 TPS, with a network round trip on every input, feel flyable
+> at all?
 
-> On Windows, use `./gradlew.bat` or `gradlew.bat` instead of `./gradlew`. The Gradle wrapper is
-> included so you do not need to install Gradle separately; only Java is required.
+That question is still **open**. Where things stand:
 
-When the server starts, the output may prompt you to authorize your Hytale server. After that, you
-can begin developing your plugin while the server handles local development runs.
+- **`:fpv-core` has the flight model.** A rate-agnostic `QuadIntegrator`, the `RatePid` rate loop,
+  Betaflight-style `RateCurve`/`RateProfile` stick curves, `MotorMixer`, and the `Quat`/`Vec3`
+  math underneath — each with unit tests.
+- **`:fpv-plugin` is barely started.** The entry point, config, and a `/fpv` command that prints
+  the resolved tick/substep settings so you can confirm the plugin loaded. **There is no drone
+  entity, no camera attach and no `/fpv launch` yet.**
 
-From here, the [HytaleModding guides](https://hytalemodding.dev/en/docs/guides/plugin/build-and-test)
-cover more details.
+The remaining phase-0 work is tracked under
+[milestone v0.1 — Feel](https://github.com/maartenpeels/hytale_fpv_drone/milestone/1). Later
+milestones (tuning, racing, multiplayer, long-range flight) are epics on the
+[issue list](https://github.com/maartenpeels/hytale_fpv_drone/issues).
 
-## Hytale Gradle Plugin
+---
 
-This template is built around AzureDoom's `com.azuredoom.hytale-tools` Gradle plugin.
+## Requirements
 
-The plugin is configured in `build.gradle.kts`:
+- **JDK 25.** Note this is needed to **run Gradle**, not just to compile — the
+  `hytale-gradle-plugin` buildscript itself targets 25. If your default JDK is older, every Gradle
+  command below needs a prefix:
 
-```kotlin
-plugins {
-    idea
-    java
-    id("com.azuredoom.hytale-tools") version "1.+"
-}
-```
+  ```bash
+  JAVA_HOME=$(/usr/libexec/java_home -v 25) ./gradlew build
+  ```
 
-The AzureDoom Maven repository is configured in `settings.gradle.kts`:
+  On macOS, `/usr/libexec/java_home -v 25` reporting no match means there is no JDK 25 installed
+  and no prefix will help — install one first (`brew install --cask temurin@25`).
+- **JetBrains Runtime is recommended** if you want hot reload while the dev server is running.
+  `./gradlew hytaleJvmDoctor` reports which JVM Gradle resolved and whether enhanced class
+  redefinition is available.
+- A **Hytale installation**, for its `Assets.zip`. The standard per-OS install location is
+  auto-detected; you only need to configure anything if yours is somewhere unusual.
+- No Gradle install needed — the wrapper is committed.
 
-```kotlin
-pluginManagement {
-    repositories {
-        gradlePluginPortal()
-        mavenCentral()
-        maven {
-            name = "AzureDoom Maven"
-            url = uri("https://maven.azuredoom.com/mods")
-        }
-    }
-}
-```
-
-Most plugin-specific settings are controlled from `gradle.properties` and passed into the
-`hytaleTools` block in `build.gradle.kts`. This keeps common project metadata in one easy-to-edit
-place.
-
-For full plugin documentation, configuration options, tasks, and multi-project setup, visit the
-[Hytale Gradle Plugin repository](https://github.com/AzureDoom/Hytale-Gradle-Plugin).
-
-## Useful commands
+## Build and test
 
 ```bash
-# Sync/setup the local Hytale development environment
-./gradlew setupHytaleDev
-
-# Run the local Hytale server
-./gradlew runServer
-
-# Run the server with debugging and hot swap enabled
-./gradlew runServer -Ddebug=true -Dhotswap=true
-
-# Check your JVM and hot swap setup
-./gradlew hytaleJvmDoctor
-
-# Build the plugin
-./gradlew build
-
-# Refresh dependencies if something fails to resolve
-./gradlew build --refresh-dependencies
+./gradlew build              # full build, including tests
+./gradlew :fpv-core:test     # the physics and curve tests on their own — fast, no server needed
 ```
 
-## Project structure
+`:fpv-core` has no Hytale dependency, so its tests run in about a second. That is where nearly all
+the logic lives, and it is the loop to use while working on flight behaviour. Narrow it to one file
+while iterating:
 
-```text
-src/main/java/        Plugin source code
-src/main/resources/   Plugin resources, including manifest.json
-gradle.properties     Main template configuration
-build.gradle.kts      Gradle build and Hytale Gradle Plugin configuration
-settings.gradle.kts   Plugin repositories and project name
+```bash
+./gradlew :fpv-core:test --tests "*RateCurveTest"
 ```
 
-## Manifest configuration
+The plugin jar lands at:
 
-The generated `manifest.json` is driven by the values in `gradle.properties`, including:
+```
+fpv-plugin/build/libs/FPV Drone-0.0.1.jar
+```
 
-- `manifest_group`
-- `mod_id`
-- `version`
-- `mod_description`
-- `mod_author`
-- `mod_url`
-- `main_class`
-- `manifest_dependencies`
-- `manifest_opt_dependencies`
-- `manifestServerVersion`
+**Note the path** — `fpv-plugin/build/libs/`, *not* the root `build/libs/`. The root `shadowJar`
+task exists only as a compatibility shim for tooling that expects the old pre-module-split
+location. Also note the space in the filename; that is
+[#27](https://github.com/maartenpeels/hytale_fpv_drone/issues/27).
 
-After changing these values, run:
+There is no lint or format command in this repo — no Spotless, Checkstyle or formatter plugin is
+configured.
+
+## Running a dev server
+
+```bash
+./gradlew setupHytaleDev                          # once, to sync the local Hytale dev environment
+./gradlew runServer                               # run a local dev server with the plugin loaded
+./gradlew runServer -Ddebug=true -Dhotswap=true   # ... with debugging and hot swap
+```
+
+`runServer` executes the Hytale server straight from the Gradle classpath with `--assets` pointed
+at your install's `Assets.zip`, working directory `run/`. It does not build or read a packaged
+server distribution, and it does not copy assets anywhere.
+
+On Windows, use `gradlew.bat` in place of `./gradlew`.
+
+## Configuration
+
+The plugin writes `fpv_drone.json` into its data directory, holding just the two simulation-rate
+knobs: `WorldTps` (default 30, Hytale's own) and `PhysicsSubsteps` (default 8, so ~4 ms per
+integration step). Raising `WorldTps` is the documented escape hatch if flight turns out to feel
+floaty — that it stays a config change rather than a rewrite is a deliberate constraint. Per-pilot
+tuning is not server config; it will be a persisted profile.
+
+`/fpv` in game prints the resolved values, which is the quickest check that your build actually
+loaded.
+
+Mod identity — id, version, entry point, dependencies, license — lives in `gradle.properties` and
+is the single source for both modules. `manifest.json` is **generated** from it; never hand-edit
+it:
 
 ```bash
 ./gradlew updatePluginManifest
 ```
 
-## Troubleshooting
+## Layout
 
-- **Gradle sync fails in IntelliJ** — Check that Java 25 is installed and configured under
-  **File → Project Structure → SDKs**.
-- **The Hytale Gradle Plugin does not resolve** — Make sure `settings.gradle.kts` includes the
-  AzureDoom Maven repository at `https://maven.azuredoom.com/mods`.
-- **Build fails with missing dependencies** — Run `./gradlew build --refresh-dependencies` and make
-  sure you have internet access.
-- **Permission denied on `./gradlew`** — Run `chmod +x gradlew` on macOS/Linux.
-- **Hot reload or enhanced class redefinition does not work** — Use JetBrains Runtime and try
-  `./gradlew hytaleJvmDoctor` to verify your JVM setup.
+Two Gradle modules, and the split is load-bearing:
 
-## Resources
+```
+fpv-core/      pure Java + JUnit 5. Zero Hytale dependencies.
+fpv-plugin/    the Hytale plugin. Adapters only. Depends on :fpv-core.
+```
 
-- [Hytale Gradle Plugin](https://github.com/AzureDoom/Hytale-Gradle-Plugin)
-- [Hytale Modding Guides](https://hytalemodding.dev)
-- [Hytale Modding Discord](https://discord.gg/hytalemodding)
+**`:fpv-core`** holds everything that can be reasoned about and tested without a game: the quad
+integrator, PID controller, rate/expo curves, swept gate-crossing math, race state machine, pilot
+profile validation, leaderboard model. It is deterministic — physics is a function of
+`(state, input, dt)`.
+
+**`:fpv-plugin`** holds only the boundary: ECS components and systems, packet handling, commands,
+UI pages, persistence, entity lifecycle. It translates Hytale packets into core's types and core's
+output back into packets.
+
+The reason is blunt: the Hytale server API is undocumented, decompiled, pinned to a version range,
+and still changing. When it breaks, only the adapter layer should break. The build enforces this —
+the Hytale Gradle plugin is applied *only* in `:fpv-plugin`, so a `com.hypixel.*` import in
+`:fpv-core` fails to compile with "package does not exist". At package time, `:fpv-core`'s classes
+are unpacked into the plugin jar, because the server loads a single jar.
+
+```
+build.gradle.kts       shared Java/test config only — the root is not itself a Java project
+settings.gradle.kts    module includes
+gradle.properties      single source of mod identity
+CLAUDE.md              the durable engineering context (see below)
+docs/plans/            one design document per issue
+```
+
+## Contributing
+
+Read **[CLAUDE.md](CLAUDE.md)** first. It is written for AI agents but it is the real engineering
+documentation for this repo, and it will save you from the traps: verified facts read out of the
+decompiled server (input channels, camera packets, world units — gravity is `32.0`, not `9.81`),
+the settled design decisions and why the obvious alternatives were rejected, and the
+always/ask-first/never boundaries on which files may be changed. Also read
+[HOW-WE-WORK-WITH-AI.md](HOW-WE-WORK-WITH-AI.md) for how work moves from issue to merged PR.
+
+The one workflow rule that matters most:
+
+> **The Hytale API is undocumented. Do not guess at it — read it.** Decompiled server sources are
+> on disk under `~/.gradle/caches/hytale-decompiled/`. Grep them and confirm the class, method and
+> signature exist before writing anything that touches `com.hypixel.*`.
+
+Practically:
+
+- Work from a GitHub issue; each non-trivial change gets a design note in `docs/plans/<issue>.md`.
+- Branch as `<type>/<slug>` (`feat/`, `fix/`, `chore/`, `docs/`); never push to `main`.
+- Every physics, curve, crossing and race-state change lands with a unit test. Flying around is not
+  verification — these are cheap to test and impossible to eyeball.
+- CI runs `./gradlew build` on JDK 25 for every push and pull request to `main`.
 
 ## License
 
-Add your own license after copying the template. We recommend MIT, BSD, or Apache to keep the
-modding community open.
+MIT — `mod_license` in `gradle.properties`. See `LICENSE`.
