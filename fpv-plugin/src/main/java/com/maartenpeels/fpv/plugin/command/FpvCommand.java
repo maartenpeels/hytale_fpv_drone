@@ -25,6 +25,11 @@ public class FpvCommand extends AbstractCommand {
         super("fpv", "FPV drone flight");
         this.setPermissionGroups(HytalePermissionsProvider.GROUP_ADVENTURER);
         this.plugin = plugin;
+        // Subcommands work on a plain AbstractCommand: acceptCall0 runs
+        // checkForExecutingSubcommands before the required-argument check, and that method reads
+        // this.subCommands with no dependence on the command's class. So /fpv keeps its own config
+        // report and still dispatches. Established in #28.
+        this.addSubCommand(new FpvCameraCommand(plugin));
     }
 
     @Nullable
