@@ -312,6 +312,26 @@ Later phases, roughly in dependency order:
 - Prefer values and explicit state machines over booleans-plus-branching for race and flight
   mode state.
 - Config goes through `BuilderCodec`/`KeyedCodec` — see `FpvConfig` for the pattern.
+- **ECS systems take every `ComponentType` by constructor injection. Never call
+  `SomeComponent.getComponentType()` from inside a system.** This is not a style preference —
+  a system that resolves its own component types cannot be unit-tested at all, because those
+  static accessors go through module singletons that only exist in a booted server.
+  `TransformComponent.getComponentType()` resolves via `EntityModule.get()`
+  (`modules/entity/component/TransformComponent.java:48-50`), whose static `instance` is
+  assigned in the module's plugin constructor (`EntityModule.java:304`); outside a server it is
+  null and you get an NPE. Verified, and pinned by a test in
+  `fpv-plugin/src/test/java/com/maartenpeels/fpv/plugin/ecs/HytaleEcsHarnessTest.java`.
+  So: pass `ComponentType`s in through the constructor, and have the caller obtain them from
+  the registry. That is what `EntityModule.setup()` itself does
+  (`EntityModule.java:307-320`). If you are writing `X.getComponentType()` inside a system,
+  you have just made it untestable.
+- **Keep computation out of side effects in ECS systems.** A system that computes a transform
+  is unit-testable; one that also pushes chunk or network side effects is not, without
+  mocking — `TransformComponent.markChunkDirty` (`:133-140`) reaches
+  `getExternalData().getWorld()`. Split them into separate systems.
+- A system must mutate the world through its `CommandBuffer`, never by calling
+  `store.addEntity`/`removeEntity` from inside `tick`. Those call `assertWriteProcessing()`
+  (`component/Store.java:362`), which throws precisely when called from within a tick.
 
 ---
 
@@ -386,9 +406,7 @@ it. Do not construct that layout by hand to satisfy external tooling; point the 
 ## Known repo issues (unfixed)
 
 - The plugin jar is named from `mod_name`, so it builds as `FPV Drone-0.0.1.jar` — with a
-  space. Switch `archiveBaseName` to `mod_id` if that ever causes trouble.
-- No `LICENSE` file, though `mod_license = MIT`.
-- `README.md` is still the unmodified Hytale Plugin Template readme.
+  space. Switch `archiveBaseName` to `mod_id` if that ever causes trouble. Tracked as #27.
 
 ---
 
@@ -417,11 +435,53 @@ mutates the local Hytale dev environment, the second blocks on a running server.
 
 ## Tests
 
-- Runner: JUnit 5, `:fpv-core` only (`:fpv-plugin` has no tests — adapters are verified by flying)
+- Runner: JUnit 5. **Both** modules have tests: `./gradlew :fpv-core:test` and
+  `./gradlew :fpv-plugin:test`.
 - Naming: `<ClassUnderTest>Test.java`, mirroring the main package
 - Exemplary test file — copy its conventions (`@Nested` per behaviour group, test names that
   state the *reason*, e.g. `rejectsNegativeThrottleBecauseThrottleIsUnidirectional`):
   `fpv-core/src/test/java/com/maartenpeels/fpv/control/ControlInputTest.java`
+
+### `:fpv-plugin` tests — Hytale's ECS runs without a server
+
+This file used to say `:fpv-plugin` has no tests — adapters are verified by flying. **That was
+wrong**, and #34 replaced it. `ComponentRegistry` has a public no-arg constructor that pulls in
+no world, no scheduler, no network and no assets, and `Store.tick(float)` is public — so a
+plugin ECS system can be unit-tested in a plain JVM with no server boot, no `Assets.zip` and no
+client. Use `fpv-plugin/src/test/java/com/maartenpeels/fpv/plugin/ecs/HytaleEcsHarness.java`;
+its javadoc is the reference for the constraints below.
+
+What this does **not** cover: packet round trips, camera attach, chunk streaming, and anything
+reaching `World`. Those are still verified by flying. The harness tests computation, which is
+why the Conventions rules about constructor injection and splitting side effects out matter —
+they are what decides whether a system falls inside or outside this loop.
+
+Constraints, all verified by execution against `Server-0.5.9.jar`:
+
+- **A mandatory JVM flag.** Tests need
+  `-Djava.util.logging.manager=com.hypixel.hytale.logger.backend.HytaleLogManager`.
+  `ComponentRegistry` holds a `static final HytaleLogger` whose static initialiser throws
+  `IllegalStateException: Log manager wasn't set!` without it, and setting the property from
+  inside a test is too late. `fpv-plugin/build.gradle.kts` passes it on the `test` task; a new
+  `Test` task or an IDE runner that ignores Gradle's `jvmArgs` will hit that exception.
+- **The server jar is wired onto the test classpath by hand.** The Hytale Gradle plugin puts
+  `vineServerJar` in `compileOnly` only and has no test support at all, so
+  `:fpv-plugin` uses `testImplementation(files(configurations.named("vineServerJar")))`.
+- **Never enable JUnit parallel execution.** `Store` binds to its constructing thread and
+  throws a plain `IllegalStateException` from any other.
+- **Never register into `EntityStore.REGISTRY`.** It is `public static final` and shared
+  JVM-wide; re-registering an id throws `id 'Transform' already exists!`. One fresh
+  `ComponentRegistry` per test — which is what the harness gives you. Call `shutdown()` in
+  teardown; the harness's `close()` does it.
+- **Register components before the systems that query them.** `registerSystem` validates a
+  system's query before registering that system's own component declarations.
+- `com.hypixel.hytale.component.system.System` shadows `java.lang.System`. Import Hytale
+  system classes individually; a wildcard import breaks every `System.out` in the file.
+
+Deliberately not done, with reasons — do not re-attempt without reading #34 first: booting the
+server in-process (a boot failure calls `System.exit`, killing the Gradle test worker instead
+of failing a test, and it needs the ~GB `Assets.zip`), and a synthetic QUIC client bot
+(feasible via `--auth-mode=insecure`, but days of work).
 
 ## Boundaries
 
@@ -453,8 +513,21 @@ mutates the local Hytale dev environment, the second blocks on a running server.
 
 ## Team tools
 
-- Tracker: GitHub Issues — `gh issue view <n>`, `gh issue create --title <t> --body <b>`,
-  subtasks are separate issues referencing the parent (GitHub has no native subtask)
+- Tracker: GitHub Issues — `gh issue create --title <t> --body <b>`, subtasks are separate
+  issues referencing the parent (GitHub has no native subtask)
+- **`gh issue view <n>` is broken on this repo — do not use the bare form.** It fails with
+  `GraphQL: Projects (classic) is being deprecated ... (repository.issue.projectCards)`,
+  because plain `gh issue view` still requests the retired `projectCards` field. It is not a
+  transient error and not an auth problem, so do not conclude a ticket is unreadable. Two
+  working substitutes, both verified on this repo:
+
+  ```bash
+  gh issue view <n> --json title,body,state          # --json skips the deprecated field
+  gh issue view <n> --json number,title,body,labels,milestone,state  # what /workon wants
+  gh api repos/:owner/:repo/issues/<n>               # REST, bypasses GraphQL entirely
+  ```
+
+  Add `--jq` to shape the output, e.g. `--jq '.title'`.
 - VCS: GitHub — `gh pr create --base <branch> --fill`, `gh pr view <n>`, `gh pr diff <n>`
 - Auth: `gh` keyring, account **`maartenpeels`** (scopes `repo`, `read:org`, `gist`); git over
   SSH. The keyring also holds `maartenpeels2`, which is **not a collaborator** on this repo —
