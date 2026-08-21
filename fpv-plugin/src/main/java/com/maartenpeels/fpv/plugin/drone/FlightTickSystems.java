@@ -235,14 +235,6 @@ public final class FlightTickSystems {
      */
     public static final class AdvanceFlight extends EntityTickingSystem<EntityStore> {
 
-        /**
-         * The sticks a drone flies on when its slot has gone missing — which should not happen, since
-         * {@link TrackPilotInput} opens one for every drone. Mid-throttle, matching
-         * {@link PilotInputMapper#centred}'s policy: a spring-centred throttle rests at mid-stick, and
-         * cutting the motors is the worst available response to an internal inconsistency.
-         */
-        private static final ControlInput NO_SLOT = new ControlInput(0.5f, 0f, 0f, 0f);
-
         /** Beyond this factor between the observed tick and the configured one, something is wrong. */
         private static final double TICK_MISMATCH_FACTOR = 2.0;
 
@@ -254,6 +246,18 @@ public final class FlightTickSystems {
         private final PilotInputBuffer inputs;
         @Nonnull
         private final PilotInputMapper mapper;
+        /**
+         * The sticks a drone flies on when its slot has gone missing — which should not happen, since
+         * {@link TrackPilotInput} opens one for every drone.
+         *
+         * <p>Centred, at whatever throttle the mapper says <em>hovers</em>, matching
+         * {@link PilotInputMapper#centred}'s policy: cutting the motors is the worst available response
+         * to an internal inconsistency. Asked of the mapper rather than written down as a constant,
+         * because this used to be a literal {@code 0.5f} and #45 is what that cost — hover is a
+         * property of the airframe, and mid-scale is a 1 g climb on ours.
+         */
+        @Nonnull
+        private final ControlInput noSlot;
         /**
          * The configured tick length, not the wall clock's.
          *
@@ -315,6 +319,7 @@ public final class FlightTickSystems {
             this.flightTick = flightTick;
             this.inputs = inputs;
             this.mapper = mapper;
+            this.noSlot = mapper.hovering();
             this.tickSeconds = tickSeconds;
             this.substepListener = substepListener;
             this.logger = logger;
@@ -400,7 +405,7 @@ public final class FlightTickSystems {
         @Nonnull
         private ControlInput sticksFor(@Nonnull UUID pilotId) {
             PilotInputSlot slot = this.inputs.slotOf(pilotId);
-            return slot == null ? NO_SLOT : slot.nextInput(this.mapper, this.tickSeconds);
+            return slot == null ? this.noSlot : slot.nextInput(this.mapper, this.tickSeconds);
         }
 
         /**

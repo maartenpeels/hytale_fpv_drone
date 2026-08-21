@@ -21,6 +21,7 @@ import com.hypixel.hytale.server.core.universe.world.storage.EntityStore;
 import com.maartenpeels.fpv.control.PilotInputMapper;
 import com.maartenpeels.fpv.control.PilotInputMapping;
 import com.maartenpeels.fpv.flight.FlightTick;
+import com.maartenpeels.fpv.flight.QuadParameters;
 import com.maartenpeels.fpv.flight.SubstepListener;
 import com.maartenpeels.fpv.plugin.ecs.HytaleEcsHarness;
 import com.maartenpeels.fpv.plugin.input.PilotInputBuffer;
@@ -107,7 +108,8 @@ public record DroneTestFixture(
                 this.types,
                 flightTick,
                 this.inputs,
-                new PilotInputMapper(PilotInputMapping.DEFAULT),
+                new PilotInputMapper(
+                        PilotInputMapping.DEFAULT, QuadParameters.DEFAULT.hoverCollective()),
                 tickSeconds,
                 listener == null ? SubstepListener.NONE : listener,
                 HytaleLogger.getLogger(),
