@@ -413,6 +413,64 @@ class SweptAabbTest {
     }
 
     @Nested
+    class NonCubicMover {
+
+        /** All three different, and all dyadic, so every expected time below is exact. */
+        private static final Vec3 OBLONG = new Vec3(0.5, 0.125, 0.25);
+
+        @Test
+        void appliesEachHalfExtentToItsOwnAxisAndNotToAnother() {
+            // Each approach is placed to enter at exactly t = 0.5, so the exit time is what
+            // distinguishes the axes -- and a transposed half-extent moves it.
+            record Case(Vec3 from, Vec3 displacement, double exitTime, Vec3 normal) {}
+            Case[] cases = {
+                new Case(new Vec3(-2.5, 0.5, 0.5), new Vec3(4, 0, 0), 1.0, new Vec3(-1, 0, 0)),
+                new Case(new Vec3(0.5, -2.125, 0.5), new Vec3(0, 4, 0), 0.8125, new Vec3(0, -1, 0)),
+                new Case(new Vec3(0.5, 0.5, -2.25), new Vec3(0, 0, 4), 0.875, new Vec3(0, 0, -1)),
+            };
+
+            for (Case each : cases) {
+                SweptResult result = SweptAabb.sweep(
+                        Aabb.centredAt(each.from(), OBLONG), each.displacement(), BLOCK);
+
+                SweptResult.Contact hit = assertInstanceOf(SweptResult.Contact.class, result,
+                        "along " + each.displacement());
+                assertEquals(0.5, hit.entryTime(), "along " + each.displacement());
+                assertEquals(each.exitTime(), hit.exitTime(), "along " + each.displacement());
+                assertEquals(each.normal(), hit.normal(), "along " + each.displacement());
+            }
+        }
+    }
+
+    @Nested
+    class ExtremeMagnitudes {
+
+        @Test
+        void reportsAnInfiniteExitTimeWhenTheDisplacementIsTooSmallToEverLeave() {
+            // Resting exactly on the block, creeping down at a rate that overflows the quotient.
+            Vec3 restingOnTop = new Vec3(0.5, BLOCK.max().y() + DRONE.y(), 0.5);
+
+            SweptResult.Contact hit = contact(restingOnTop, new Vec3(0, -1e-320, 0), BLOCK);
+
+            assertEquals(0.0, hit.entryTime());
+            assertEquals(Double.POSITIVE_INFINITY, hit.exitTime());
+            assertEquals(new Vec3(0, 1, 0), hit.normal());
+            assertFalse(hit.passedFullyThrough());
+        }
+
+        @Test
+        void losesAThinWallOnceTheStepIsSoLargeThatEntryAndExitRoundTogether() {
+            // The documented upper bound on exactness. At 1e300 the wall's own thickness is below
+            // one ULP of the step, so the overlap interval collapses and the routine reports a
+            // miss. Pinned rather than hidden: the guarantee holds to ~1e9, not to infinity.
+            Aabb wall = new Aabb(new Vec3(-0.5, -50, -50), new Vec3(0.5, 50, 50));
+
+            assertSame(SweptResult.MISS,
+                    sweep(new Vec3(-1e300, 0, 0), new Vec3(2e300, 0, 0), wall));
+        }
+    }
+
+    @Nested
     class PointMover {
 
         @Test

@@ -195,6 +195,74 @@ class AabbTest {
 
             assertFalse(UNIT_BLOCK.overlaps(plane));
         }
+
+        @Test
+        void answersFalseForADegenerateBoxWhereTheSweepAnswersAlreadyOverlapping() {
+            // Pins the documented disagreement rather than leaving it to be discovered: this measures
+            // volume at an instant, the sweep measures duration of containment. A #6 gate plane is
+            // exactly the case where using this as a pre-check beside a sweep would answer false
+            // every single time.
+            Aabb gatePlane = new Aabb(new Vec3(-2, -2, 0), new Vec3(2, 2, 0));
+            Aabb drone = Aabb.centredAt(Vec3.ZERO, new Vec3(0.25, 0.1, 0.25));
+
+            assertFalse(gatePlane.overlaps(drone));
+            assertFalse(drone.overlaps(gatePlane));
+            assertTrue(gatePlane.expandedBy(drone.halfExtents()).contains(drone.centre()));
+        }
+
+        @Test
+        void rejectsNull() {
+            assertThrows(IllegalArgumentException.class, () -> UNIT_BLOCK.overlaps(null));
+        }
+    }
+
+    @Nested
+    class Union {
+
+        @Test
+        void boundsBothBoxesOnEveryAxis() {
+            Aabb other = new Aabb(new Vec3(-2, 0.25, 3), new Vec3(-1, 0.5, 4));
+
+            Aabb combined = UNIT_BLOCK.union(other);
+
+            assertEquals(new Vec3(-2, 0, 0), combined.min());
+            assertEquals(new Vec3(1, 1, 4), combined.max());
+        }
+
+        @Test
+        void boundsTheWholeRegionAMovingBoxPassesThroughWhichIsWhySweptCallersWantIt() {
+            Aabb start = Aabb.centredAt(new Vec3(0, 0, 0), new Vec3(0.25, 0.25, 0.25));
+            Vec3 displacement = new Vec3(10, -3, 0);
+
+            Aabb swept = start.union(start.translatedBy(displacement));
+
+            assertTrue(swept.contains(start.min()));
+            assertTrue(swept.contains(start.translatedBy(displacement).max()));
+            for (double t = 0; t <= 1; t += 0.05) {
+                Vec3 centre = displacement.scale(t);
+                assertTrue(swept.contains(centre), "centre at t " + t);
+            }
+        }
+
+        @Test
+        void isIdempotentAndSymmetric() {
+            Aabb other = new Aabb(new Vec3(-2, 0.25, 3), new Vec3(-1, 0.5, 4));
+
+            assertEquals(UNIT_BLOCK, UNIT_BLOCK.union(UNIT_BLOCK));
+            assertEquals(UNIT_BLOCK.union(other), other.union(UNIT_BLOCK));
+        }
+
+        @Test
+        void absorbsAContainedBoxWithoutGrowing() {
+            Aabb inner = Aabb.centredAt(new Vec3(0.5, 0.5, 0.5), new Vec3(0.1, 0.1, 0.1));
+
+            assertEquals(UNIT_BLOCK, UNIT_BLOCK.union(inner));
+        }
+
+        @Test
+        void rejectsNull() {
+            assertThrows(IllegalArgumentException.class, () -> UNIT_BLOCK.union(null));
+        }
     }
 
     @Nested

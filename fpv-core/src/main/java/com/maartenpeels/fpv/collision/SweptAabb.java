@@ -32,20 +32,37 @@ import com.maartenpeels.fpv.math.Vec3;
  *
  * <h2>Both boxes are axis-aligned; rotation is the caller's job</h2>
  *
- * A gate has an orientation. It is still handled here, exactly, by transforming the segment into the
- * gate's own frame — where the gate <em>is</em> axis-aligned — and rotating the returned normal back
- * out. A rigid rotation maps the problem onto this one without loss.
+ * A gate has an orientation. It is handled by transforming the segment into the gate's own frame —
+ * where the gate <em>is</em> axis-aligned — and reading the result there. That reduction is exact
+ * <b>for the gate box and for the segment</b>: a rigid rotation maps both onto this problem without
+ * loss. A caller doing that does not even need to rotate the normal back out, because the gate's
+ * forward vector is a constant axis in its own frame, so {@link SweptResult.Contact#enteredAlong}
+ * works directly on the local-frame normal.
  *
- * <p>The drone, on the other hand, is deliberately treated as a non-rotating world-aligned box. Its
- * true silhouette changes with attitude, and sweeping a rotating box has no closed-form time of
- * impact; a slightly generous box is the conventional trade and it is ample for deciding whether a
- * quad hit a wall.
+ * <p>It is <b>not</b> exact for the mover. The drone is deliberately treated as a non-rotating
+ * world-aligned box, so in a rotated frame it is handed over with its world half-extents rather than
+ * its true ones — the honest gate-frame half-extent on axis {@code i} is
+ * {@code Σⱼ |Rᵢⱼ|·hⱼ}. Nor does that error point consistently one way: it inflates the box on some
+ * axes and shrinks it on others, so a yawed gate is very slightly easier to clip the edge of and
+ * very slightly harder to catch an edge on. For a quad a few tens of centimetres across against a
+ * gate measured in metres this is a rounding error on a rounding error, but it is an approximation
+ * and not an identity, and #6 should not be told otherwise.
  *
  * <h2>The rule that settles every edge case</h2>
  *
- * <b>An intersection is a non-empty open interval of genuine, positive-volume overlap inside
- * {@code (0, 1)}.</b> One rule, no epsilon, no skin width — which matters, because an epsilon here
- * would be a feel-affecting constant buried in geometry. Everything awkward follows from it:
+ * <b>An intersection is a non-empty open interval, inside {@code (0, 1)}, over which the mover's
+ * centre lies strictly within the expanded target.</b> One rule, no epsilon, no skin width — which
+ * matters, because an epsilon here would be a feel-affecting constant buried in geometry.
+ *
+ * <p>Positive <em>duration</em>, note, not positive <em>volume</em>. The distinction only shows up
+ * for degenerate boxes, and there it matters: a zero-extent point mover crossing a block, or a real
+ * drone crossing a zero-thickness gate plane, shares no volume at any instant yet is a genuine
+ * crossing, and this routine reports it as one. That is why {@link Aabb#overlaps} — which does
+ * measure volume — deliberately disagrees here, and why it must not be used as a pre-check beside a
+ * sweep. The one combination that falls out as always-miss is a point mover against a degenerate
+ * target, since the expanded target is then still flat and a point cannot be strictly inside it.
+ *
+ * <p>Everything awkward follows from the rule:
  *
  * <ul>
  *   <li>Tangency <b>counts</b> on an axis the mover is crossing — that time <em>is</em> the time of
@@ -78,7 +95,10 @@ public final class SweptAabb {
      * @throws IllegalArgumentException if {@code displacement} is not finite. Left to fail loudly
      *     rather than degrade, because every comparison against {@code NaN} is false, so a
      *     {@code NaN} displacement would sail through the interval logic and be reported as
-     *     {@link SweptResult#ALREADY_OVERLAPPING}.
+     *     {@link SweptResult#ALREADY_OVERLAPPING}. Also thrown, from {@link Aabb} itself, if either
+     *     box is so large that expanding the target by the mover's half-extents overflows a
+     *     {@code double} — which needs coordinates around {@code 1e308} and so cannot arise from
+     *     world geometry, but is worth knowing is an exception rather than an infinity.
      */
     public static SweptResult sweep(Aabb mover, Vec3 displacement, Aabb target) {
         if (mover == null || target == null) {

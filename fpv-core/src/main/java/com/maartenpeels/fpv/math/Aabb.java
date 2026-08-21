@@ -60,9 +60,16 @@ public record Aabb(Vec3 min, Vec3 max) {
      * This box grown outward by {@code halfExtents} on every axis.
      *
      * <p>This is the Minkowski sum with a box of those half-extents, and it is what turns
-     * box-versus-box into point-versus-box: a box of half-extents {@code h} centred at {@code p}
-     * overlaps this box exactly when {@code p} lies inside {@code this.expandedBy(h)}. See
-     * {@link com.maartenpeels.fpv.collision.SweptAabb}.
+     * box-versus-box into point-versus-box: <b>while both boxes are non-degenerate</b>, a box of
+     * half-extents {@code h} centred at {@code p} overlaps this box exactly when {@code p} lies
+     * strictly inside {@code this.expandedBy(h)}. See {@link com.maartenpeels.fpv.collision.SweptAabb}.
+     *
+     * <p>The non-degeneracy qualifier is load-bearing and is <em>not</em> a caveat about rounding.
+     * If either box is flat on an axis — a point mover, or a zero-thickness gate plane — the
+     * identity fails in the direction that surprises: {@code contains} can be true while
+     * {@link #overlaps} is false, because a shared region of zero volume is not an overlap but is
+     * still a shared region. `SweptAabb` sides with containment, not with {@code overlaps}; see the
+     * note on {@code overlaps} below.
      */
     public Aabb expandedBy(Vec3 halfExtents) {
         requireNonNegative(halfExtents, "halfExtents");
@@ -72,6 +79,30 @@ public record Aabb(Vec3 min, Vec3 max) {
     public Aabb translatedBy(Vec3 offset) {
         requireFinite(offset, "offset");
         return new Aabb(this.min.plus(offset), this.max.plus(offset));
+    }
+
+    /**
+     * The smallest box containing both this one and {@code other}.
+     *
+     * <p>Here because the swept-collision callers all need the same thing from it: the region a
+     * moving box passes through over one segment, which is {@code start.union(start.translatedBy(
+     * displacement))}, and which is what bounds the set of blocks worth testing. Doing that with six
+     * hand-written {@code Math.min}/{@code Math.max} calls at each call site is how an off-by-one
+     * axis gets into a plugin with no unit test around it.
+     */
+    public Aabb union(Aabb other) {
+        if (other == null) {
+            throw new IllegalArgumentException("other must not be null");
+        }
+        return new Aabb(
+                new Vec3(
+                        Math.min(this.min.x(), other.min.x()),
+                        Math.min(this.min.y(), other.min.y()),
+                        Math.min(this.min.z(), other.min.z())),
+                new Vec3(
+                        Math.max(this.max.x(), other.max.x()),
+                        Math.max(this.max.y(), other.max.y()),
+                        Math.max(this.max.z(), other.max.z())));
     }
 
     /** Whether {@code point} lies in this box, counting its surface — the box is closed. */
@@ -86,17 +117,29 @@ public record Aabb(Vec3 min, Vec3 max) {
      * Whether this box and {@code other} share a region of non-zero volume.
      *
      * <p>Strict: boxes that merely touch, sharing a face, edge or corner exactly, do <em>not</em>
-     * overlap. That matches {@link com.maartenpeels.fpv.collision.SweptAabb}, which for the same
-     * reason treats exact tangency as a miss — a drone resting exactly on the floor is touching it,
-     * not inside it. A degenerate box never overlaps anything, for the same reason. Note that this
+     * overlap — a drone resting exactly on the floor is touching it, not inside it. A degenerate box
+     * therefore never overlaps anything at all, since it has no volume to share. Note that this
      * makes {@link #contains} the more generous of the two: a point on the surface is contained, but
      * a zero-volume overlap is not an overlap.
+     *
+     * <p><b>This deliberately disagrees with {@link com.maartenpeels.fpv.collision.SweptAabb} for
+     * degenerate boxes, and the two are not interchangeable.</b> They measure different things: this
+     * asks for positive <em>volume</em> at one instant, whereas the sweep asks for positive
+     * <em>duration</em> of containment. So a point drone inside a block, or any drone inside a
+     * zero-thickness gate plane, is {@code overlaps == false} but {@code AlreadyOverlapping} from the
+     * sweep. Each is right for its own caller — a zero-volume intersection is not a collision, but a
+     * ray does cross a plane. Do not use this as an "am I already inside" pre-check next to a sweep;
+     * for a degenerate gate it would answer {@code false} every time. Use the sweep's own
+     * {@code AlreadyOverlapping} case.
      *
      * <p>Written as {@code max(mins) < min(maxs)} rather than the more familiar
      * {@code a.min < b.max && b.min < a.max}: those two agree only while both boxes are
      * non-degenerate, and the familiar form calls a flat plane inside a block an overlap.
      */
     public boolean overlaps(Aabb other) {
+        if (other == null) {
+            throw new IllegalArgumentException("other must not be null");
+        }
         return Math.max(this.min.x(), other.min.x()) < Math.min(this.max.x(), other.max.x())
                 && Math.max(this.min.y(), other.min.y()) < Math.min(this.max.y(), other.max.y())
                 && Math.max(this.min.z(), other.min.z()) < Math.min(this.max.z(), other.max.z());

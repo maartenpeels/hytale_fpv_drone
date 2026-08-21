@@ -76,6 +76,16 @@ public sealed interface SweptResult {
                     || Math.abs(normal.length() - 1.0) > NORMAL_TOLERANCE) {
                 throw new IllegalArgumentException("normal must be a unit vector but was " + normal);
             }
+
+            // Same reason, and this one matters because the javadoc below invites callers to rotate
+            // a normal into another frame and rebuild: Vec3.negated() and Quat.rotate() both emit
+            // −0.0 components, which would make an arithmetically correct normal unequal to the
+            // literal a caller compares it against.
+            normal = new Vec3(zeroed(normal.x()), zeroed(normal.y()), zeroed(normal.z()));
+        }
+
+        private static double zeroed(double component) {
+            return component == 0.0 ? 0.0 : component;
         }
 
         /**

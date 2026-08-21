@@ -77,6 +77,16 @@ class SweptResultTest {
         }
 
         @Test
+        void normalisesNegativeZeroNormalComponentsBecauseTheRotateAndRebuildPathProducesThem() {
+            // Vec3.negated() and Quat.rotate() both emit -0.0, and the javadoc invites callers to
+            // rotate a normal into another frame and rebuild a Contact from it.
+            SweptResult.Contact rebuilt = contactWithNormal(new Vec3(1, 0, 0).negated());
+
+            assertEquals(new Vec3(-1, 0, 0), rebuilt.normal());
+            assertEquals(contactWithNormal(new Vec3(-1, 0, 0)), rebuilt);
+        }
+
+        @Test
         void normalisesNegativeZeroEntryTimeBecauseItBreaksEqualityAgainstZero() {
             SweptResult.Contact hit = new SweptResult.Contact(-0.0, 1.0, Vec3.UP);
 
