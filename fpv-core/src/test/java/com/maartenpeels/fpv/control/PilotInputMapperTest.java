@@ -2,7 +2,6 @@ package com.maartenpeels.fpv.control;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -144,12 +143,18 @@ class PilotInputMapperTest {
             assertEquals(0.5f, input.throttle(), TOLERANCE);
         }
 
-        @Test
-        void fallsBackToZeroYawWhenThereIsNoTrackEither() {
-            PilotInputSample wishOnly =
-                    new PilotInputSample(0.0, -1.0, Double.NaN, Double.NaN, Double.NaN);
+        @ParameterizedTest
+        @ValueSource(doubles = {0.0, 1.5707963, 3.1415926, -1.5707963})
+        void centresTheWishAxesWhenNoSourceNamesTheFrameRatherThanGuessingNorth(double heading) {
+            PilotInputSample uninterpretable =
+                    new PilotInputSample(
+                            -Math.sin(heading), -Math.cos(heading),
+                            Double.NaN, Double.NaN, Double.NaN);
 
-            assertEquals(1f, fly(LookTrack.UNSET, wishOnly).throttle(), TOLERANCE);
+            ControlInput input = fly(LookTrack.UNSET, uninterpretable);
+
+            assertEquals(0.5f, input.throttle(), TOLERANCE);
+            assertEquals(0f, input.yaw(), TOLERANCE);
         }
     }
 
@@ -224,6 +229,16 @@ class PilotInputMapperTest {
         }
 
         @Test
+        void banksLeftForAnOddMultipleOfPiLeftwardsRatherThanInvertingAtTheWrapBoundary() {
+            ControlInput threeHalfTurnsLeft =
+                    fly(LookTrack.at(0.0, 0.0), PilotInputSample.lookRelative(0.0, 0.0, 3 * Math.PI, 0.0));
+
+            assertTrue(
+                    threeHalfTurnsLeft.roll() < 0f,
+                    "a 540 degree leftward flick must not come out banking right");
+        }
+
+        @Test
         void saturatesRatherThanExplodingOnAViolentFlick() {
             PilotInputSample flick = PilotInputSample.lookRelative(0.0, 0.0, -3.0, 0.0);
 
@@ -274,7 +289,7 @@ class PilotInputMapperTest {
         }
 
         @Test
-        void keepsTheExistingTrackWhenAPacketCarriesNoLookBecauseAbsentMeansUnchanged() {
+        void keepsTheTrackedAnglesWhenAPacketCarriesNoLookBecauseAbsentMeansUnchanged() {
             LookTrack track = LookTrack.at(1.25, 0.5);
             PilotInputSample wishOnly =
                     new PilotInputSample(
@@ -282,14 +297,23 @@ class PilotInputMapperTest {
 
             PilotInputUpdate update = mapper.map(track, wishOnly, DT);
 
-            assertSame(track, update.track());
+            assertEquals(1.25, update.track().yaw());
+            assertEquals(0.5, update.track().pitch());
             assertEquals(1f, update.input().throttle(), TOLERANCE);
             assertEquals(0f, update.input().roll(), TOLERANCE);
             assertEquals(0f, update.input().pitch(), TOLERANCE);
         }
 
         @Test
-        void measuresTheNextDeltaFromTheLastRealAngleAcrossAGapInLookSamples() {
+        void agesTheTrackOnALookLessTickSoTheNextDeltaKnowsHowLongItSpanned() {
+            LookTrack track = LookTrack.at(1.0, 0.0);
+            PilotInputSample noLook = new PilotInputSample(0.0, 0.0, 1.0, Double.NaN, Double.NaN);
+
+            assertEquals(DT, mapper.map(track, noLook, DT).track().secondsSinceSample(), 1e-12);
+        }
+
+        @Test
+        void measuresTheNextDeltaOverTheIntervalItActuallySpannedNotOneTick() {
             LookTrack track = LookTrack.at(1.0, 0.0);
             PilotInputSample noLook = new PilotInputSample(0.0, 0.0, 1.0, Double.NaN, Double.NaN);
 
@@ -298,7 +322,26 @@ class PilotInputMapperTest {
                     mapper.map(afterGap, PilotInputSample.lookRelative(0.0, 0.0, 0.9, 0.0), DT)
                             .input();
 
-            assertEquals((float) ((0.1 / DT) / (2.0 * Math.PI)), resumed.roll(), TOLERANCE);
+            assertEquals((float) ((0.1 / (2 * DT)) / (2.0 * Math.PI)), resumed.roll(), TOLERANCE);
+        }
+
+        @Test
+        void reportsTheSameRateWhetherLookSamplesArriveEveryTickOrEveryFourth() {
+            double turnRate = Math.PI;
+
+            ControlInput everyTick =
+                    fly(
+                            LookTrack.at(0.0, 0.0),
+                            PilotInputSample.lookRelative(0.0, 0.0, -turnRate * DT, 0.0));
+
+            LookTrack sparse = LookTrack.at(0.0, 0.0).aged(3 * DT);
+            ControlInput everyFourth =
+                    fly(
+                            sparse,
+                            PilotInputSample.lookRelative(0.0, 0.0, -turnRate * 4 * DT, 0.0));
+
+            assertEquals(0.5f, everyTick.roll(), TOLERANCE);
+            assertEquals(everyTick.roll(), everyFourth.roll(), TOLERANCE);
         }
     }
 
@@ -351,6 +394,16 @@ class PilotInputMapperTest {
         }
 
         @Test
+        void neverEmitsANegativeZeroBecauseItWouldCompareUnequalToACentredInput() {
+            PilotInputSample centredAtSouth =
+                    new PilotInputSample(0.0, 0.0, Math.PI, Math.PI, 0.0);
+
+            ControlInput input = fly(LookTrack.at(Math.PI, 0.0), centredAtSouth);
+
+            assertEquals(new ControlInput(0.5f, 0f, 0f, 0f), input);
+        }
+
+        @Test
         void rejectsMissingArguments() {
             assertThrows(
                     IllegalArgumentException.class,
@@ -366,22 +419,34 @@ class PilotInputMapperTest {
 
         @Test
         void restsThrottleAtMidStickSoASilentClientHoversRatherThanFalling() {
-            PilotInputUpdate update = mapper.centred(LookTrack.at(1.0, 0.5));
+            PilotInputUpdate update = mapper.centred(LookTrack.at(1.0, 0.5), DT);
 
             assertEquals(0.5f, update.input().throttle());
             assertTrue(update.input().sticksCentred());
         }
 
         @Test
-        void preservesTheLookMemorySoTheNextPacketDoesNotFlick() {
-            LookTrack track = LookTrack.at(1.0, 0.5);
+        void preservesTheTrackedAnglesSoTheNextPacketDoesNotFlick() {
+            PilotInputUpdate update = mapper.centred(LookTrack.at(1.0, 0.5), DT);
 
-            assertSame(track, mapper.centred(track).track());
+            assertEquals(1.0, update.track().yaw());
+            assertEquals(0.5, update.track().pitch());
         }
 
         @Test
-        void rejectsAMissingTrack() {
-            assertThrows(IllegalArgumentException.class, () -> mapper.centred(null));
+        void agesTheTrackSoASkippedTickIsNotChargedToTheNextDelta() {
+            assertEquals(
+                    DT,
+                    mapper.centred(LookTrack.at(1.0, 0.5), DT).track().secondsSinceSample(),
+                    1e-12);
+        }
+
+        @Test
+        void rejectsAMissingTrackOrAnUnusableDt() {
+            assertThrows(IllegalArgumentException.class, () -> mapper.centred(null, DT));
+            assertThrows(
+                    IllegalArgumentException.class,
+                    () -> mapper.centred(LookTrack.UNSET, 0.0));
         }
     }
 

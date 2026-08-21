@@ -116,76 +116,92 @@ public final class PilotInputMapper {
      *       throttle to closed — cutting the motors is the worst available response to one bad packet.
      *   <li>An out-of-range wish component saturates its axis via {@link ControlInput#clamped}.
      *   <li>An absent or non-finite look angle gives zero pitch/roll deflection and <em>keeps</em> the
-     *       existing track. Absent genuinely means "the look did not change" — {@code lookOrientation}
-     *       is nullable and the client omits it when nothing moved — and keeping the track means the
-     *       next real sample measures from the last known angle instead of flicking.
+     *       existing track, {@link LookTrack#aged} by {@code dt}. Absent genuinely means "the look did
+     *       not change" — {@code lookOrientation} is nullable and the client omits it when nothing
+     *       moved — so the next real sample measures from the last known angle, over the interval it
+     *       really spanned rather than one tick.
      *   <li>An absent or non-finite wish frame yaw falls back to this sample's look yaw, then to the
-     *       tracked yaw, then to zero. That covers a packet carrying {@code wishMovement} but no
-     *       {@code lookOrientation}, and the case where a camera pins the movement frame with
-     *       {@code MovementForceRotationType.Custom} and a zero rotation.
+     *       tracked yaw. If none of the three is known the wish vector is <em>uninterpretable</em> —
+     *       a world-space vector says nothing without the frame it was rotated into — so both wish
+     *       axes read as centred. Guessing a heading of zero instead would give a pilot facing east
+     *       full yaw-right and no throttle for holding {@code W}.
      *   <li>The first sample after a reset gives centred pitch and roll, because there is nothing to
      *       difference against yet. Arming a drone must not fire a flick.
      *   <li>A yaw delta past ±π wraps into {@code (−π, π]} — the pilot took the short way round. Pitch
      *       is <em>not</em> wrapped: pitch does not wrap, it stops, so folding a huge pitch delta into
      *       a plausible small one would hide a broken client rather than clamp it.
+     *   <li>A negative zero never leaves here. {@code −0.0f} is legitimately produced by the rotation
+     *       and by negating a zero delta, and it makes an otherwise centred {@link ControlInput}
+     *       compare unequal to a centred one, since a record's {@code equals} uses
+     *       {@code Float.compare}.
      * </ul>
      *
      * @param track the look memory from the previous packet; {@link LookTrack#UNSET} on launch
      * @param sample this packet's raw numbers, in the conventions {@link PilotInputSample} documents
-     * @param dt seconds since the previous sample; must be finite and positive. Unlike the sample this
+     * @param dt seconds since the previous call; must be finite and positive. Unlike the sample this
      *     comes from our own tick loop, so a bad value is our bug and throws.
      */
     public PilotInputUpdate map(LookTrack track, PilotInputSample sample, double dt) {
         requirePresent(track, "track");
         requirePresent(sample, "sample");
-        if (!Double.isFinite(dt) || dt <= 0.0) {
-            throw new IllegalArgumentException("dt must be finite and positive but was " + dt);
-        }
+        requireUsableDt(dt);
 
+        double forward = 0.0;
+        double lateral = 0.0;
         double frameYaw = resolveFrameYaw(sample, track);
-        double sin = Math.sin(frameYaw);
-        double cos = Math.cos(frameYaw);
-        double wishX = finiteOrZero(sample.wishX());
-        double wishZ = finiteOrZero(sample.wishZ());
-
-        double forward = -(sin * wishX + cos * wishZ) / this.mapping.wishFullScale();
-        double lateral = (cos * wishX - sin * wishZ) / this.mapping.wishFullScale();
+        if (Double.isFinite(frameYaw)) {
+            double sin = Math.sin(frameYaw);
+            double cos = Math.cos(frameYaw);
+            double wishX = finiteOrZero(sample.wishX());
+            double wishZ = finiteOrZero(sample.wishZ());
+            forward = -(sin * wishX + cos * wishZ) / this.mapping.wishFullScale();
+            lateral = (cos * wishX - sin * wishZ) / this.mapping.wishFullScale();
+        }
 
         double rollStick = 0.0;
         double pitchStick = 0.0;
-        LookTrack nextTrack = track;
+        LookTrack nextTrack;
         if (sample.hasLook()) {
             if (track.present()) {
+                double elapsed = track.secondsSinceSample() + dt;
                 double yawDelta = wrapToPi(sample.lookYaw() - track.yaw());
                 double pitchDelta = sample.lookPitch() - track.pitch();
-                rollStick = -(yawDelta / dt) / this.mapping.rollLookRateFullScale();
-                pitchStick = -(pitchDelta / dt) / this.mapping.pitchLookRateFullScale();
+                rollStick = -(yawDelta / elapsed) / this.mapping.rollLookRateFullScale();
+                pitchStick = -(pitchDelta / elapsed) / this.mapping.pitchLookRateFullScale();
             }
             nextTrack = LookTrack.at(sample.lookYaw(), sample.lookPitch());
+        } else {
+            nextTrack = track.aged(dt);
         }
 
         ControlInput input =
                 ControlInput.clamped(
-                        (float) ((forward + 1.0) / 2.0),
-                        (float) rollStick,
-                        (float) pitchStick,
-                        (float) lateral);
+                        stick((forward + 1.0) / 2.0),
+                        stick(rollStick),
+                        stick(pitchStick),
+                        stick(lateral));
         return new PilotInputUpdate(input, nextTrack);
     }
 
     /**
      * The answer for a tick that received no packet at all: sticks centred, throttle resting at
-     * mid-stick, look memory untouched.
+     * mid-stick, and the look memory aged by the tick so the next real sample still divides by the
+     * interval it actually spanned.
      *
      * <p>Mid-stick rather than closed for the same reason the remap is bipolar — it is where a
      * spring-centred throttle sits. A pilot whose client has gone quiet gets the drone's last
      * commanded attitude and a neutral throttle, which is a survivable failure; motors-off is not.
      */
-    public PilotInputUpdate centred(LookTrack track) {
+    public PilotInputUpdate centred(LookTrack track, double dt) {
         requirePresent(track, "track");
-        return new PilotInputUpdate(new ControlInput(0.5f, 0f, 0f, 0f), track);
+        requireUsableDt(dt);
+        return new PilotInputUpdate(new ControlInput(0.5f, 0f, 0f, 0f), track.aged(dt));
     }
 
+    /**
+     * The frame the wish vector was rotated into, or {@code NaN} when no source names it. Preferring
+     * the sample's own fields over the track keeps the answer as fresh as the packet allows.
+     */
     private static double resolveFrameYaw(PilotInputSample sample, LookTrack track) {
         if (Double.isFinite(sample.wishFrameYaw())) {
             return sample.wishFrameYaw();
@@ -193,15 +209,35 @@ public final class PilotInputMapper {
         if (Double.isFinite(sample.lookYaw())) {
             return sample.lookYaw();
         }
-        return track.present() ? track.yaw() : 0.0;
+        return track.present() ? track.yaw() : Double.NaN;
     }
 
+    /**
+     * Folds an angle into {@code (−π, π]}. {@link Math#IEEEremainder} lands in the closed
+     * {@code [−π, π]} and breaks halfway ties to even, which maps both {@code −π} and {@code 3π} onto
+     * {@code −π} — a 540° left flick would come out banking right without the correction.
+     */
     private static double wrapToPi(double radians) {
-        return Double.isFinite(radians) ? Math.IEEEremainder(radians, TWO_PI) : 0.0;
+        if (!Double.isFinite(radians)) {
+            return 0.0;
+        }
+        double wrapped = Math.IEEEremainder(radians, TWO_PI);
+        return wrapped <= -Math.PI ? wrapped + TWO_PI : wrapped;
+    }
+
+    private static float stick(double value) {
+        float narrowed = (float) value;
+        return narrowed == 0f ? 0f : narrowed;
     }
 
     private static double finiteOrZero(double value) {
         return Double.isFinite(value) ? value : 0.0;
+    }
+
+    private static void requireUsableDt(double dt) {
+        if (!Double.isFinite(dt) || dt <= 0.0) {
+            throw new IllegalArgumentException("dt must be finite and positive but was " + dt);
+        }
     }
 
     private static void requirePresent(Object value, String name) {
