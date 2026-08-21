@@ -3,6 +3,7 @@ package com.maartenpeels.fpv.collision;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -467,6 +468,87 @@ class SweptAabbTest {
                     () -> SweptAabb.sweep(mover, Vec3.UP, null));
             assertThrows(IllegalArgumentException.class,
                     () -> SweptAabb.sweep(mover, null, BLOCK));
+        }
+    }
+
+    /**
+     * {@code −0.0} is arithmetically zero and unequal to {@code 0.0} under the bit equality that
+     * records, {@code assertEquals} and every {@code Map} key use. A caller comparing a normal to
+     * {@code new Vec3(-1, 0, 0)} must not lose to a sign bit, so the routine's own boundary is held
+     * free of it — independently of {@code Vec3.negated()}, which does produce {@code −0.0}.
+     */
+    @Nested
+    class SignedZero {
+
+        private static final long NEGATIVE_ZERO = Double.doubleToRawLongBits(-0.0);
+
+        @Test
+        void neverReportsANormalCarryingNegativeZeroOnAnyAxisOrSign() {
+            forEveryContact(hit -> {
+                assertNoNegativeZero(hit.normal().x(), "normal x " + hit.normal());
+                assertNoNegativeZero(hit.normal().y(), "normal y " + hit.normal());
+                assertNoNegativeZero(hit.normal().z(), "normal z " + hit.normal());
+            });
+        }
+
+        @Test
+        void neverReportsAnEntryTimeOfNegativeZeroEvenEnteringAgainstAnAxis() {
+            forEveryContact(hit -> assertNoNegativeZero(hit.entryTime(), "entryTime"));
+        }
+
+        @Test
+        void alwaysReportsACanonicalAxisNormalOfOneNonZeroComponentAndTwoPositiveZeroes() {
+            forEveryContact(hit -> {
+                double[] components = {hit.normal().x(), hit.normal().y(), hit.normal().z()};
+                int units = 0;
+                int positiveZeroes = 0;
+                for (double component : components) {
+                    if (component == 1.0 || component == -1.0) {
+                        units++;
+                    } else if (Double.doubleToRawLongBits(component) == 0L) {
+                        positiveZeroes++;
+                    }
+                }
+                assertEquals(1, units, "unit components of " + hit.normal());
+                assertEquals(2, positiveZeroes, "positive zero components of " + hit.normal());
+            });
+        }
+
+        private static void assertNoNegativeZero(double value, String context) {
+            assertNotEquals(NEGATIVE_ZERO, Double.doubleToRawLongBits(value),
+                    context + " must not be negative zero");
+        }
+
+        /**
+         * Every start position and displacement worth trying: coordinates that land exactly on the
+         * expanded block's bounds as well as clear of them, and displacements of both signs,
+         * vanishing and large, on all three axes at once.
+         */
+        private static void forEveryContact(java.util.function.Consumer<SweptResult.Contact> check) {
+            double[] coordinates = {-2, -1.25, -0.75, -0.25, 0.0, 0.5, 1.0, 1.25, 1.5, 3};
+            double[] displacements = {-7, -1.5, -1e-9, 0.0, 1e-9, 1.5, 7};
+            int contacts = 0;
+
+            for (double x : coordinates) {
+                for (double y : coordinates) {
+                    for (double z : coordinates) {
+                        for (double dx : displacements) {
+                            for (double dy : displacements) {
+                                for (double dz : displacements) {
+                                    SweptResult result =
+                                            sweep(new Vec3(x, y, z), new Vec3(dx, dy, dz), BLOCK);
+                                    if (result instanceof SweptResult.Contact hit) {
+                                        contacts++;
+                                        check.accept(hit);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            assertTrue(contacts > 10_000, "the sweep must actually produce contacts, got " + contacts);
         }
     }
 
