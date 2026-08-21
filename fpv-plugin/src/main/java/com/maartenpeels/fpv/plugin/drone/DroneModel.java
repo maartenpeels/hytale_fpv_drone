@@ -8,11 +8,9 @@ import javax.annotation.Nonnull;
 /**
  * Resolves the drone's appearance from the asset pack.
  *
- * <p>This class exists to be small. It is the only code in the feature that needs a loaded asset
- * registry, so it is the only code the test harness cannot reach — {@code ModelAsset.getAssetMap()}
- * goes through {@code AssetRegistry}, which needs {@code Assets.zip}. Everything else takes the
- * resolved {@link Model} as a parameter, which is CLAUDE.md's "keep computation out of side
- * effects" applied to assets.
+ * <p>The only code in the feature that needs a loaded asset registry, and therefore the only code
+ * the harness cannot reach: {@code ModelAsset.getAssetMap()} goes through {@code AssetRegistry},
+ * which needs {@code Assets.zip}. Everything else takes the resolved {@link Model} as a parameter.
  */
 public final class DroneModel {
 

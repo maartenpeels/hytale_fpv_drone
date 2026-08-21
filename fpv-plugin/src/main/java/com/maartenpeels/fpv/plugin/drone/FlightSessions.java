@@ -26,45 +26,20 @@ import javax.annotation.Nullable;
 /**
  * Starts and ends flight sessions. The one place that knows where session state lives.
  *
- * <h2>The ownership model</h2>
+ * <p>A pilot is flying exactly when their entity carries a {@link FlightSession}. Nothing else is
+ * authoritative — no plugin-side {@code Map<UUID, ...>}, no registry of live drones, no shutdown
+ * hook. Two verified facts make that sufficient: every player exit is one
+ * {@code Store.removeEntity(ref, RemoveReason.UNLOAD)} via {@code PlayerRef.removeFromStore()}
+ * (`universe/PlayerRef.java:161`), so a {@code RefSystem} on the session sees all of them; and a
+ * {@code NonSerialized} drone is never written to a save, so a hard kill cannot leave one behind.
+ * The reasoning, the rejected alternatives and the evidence are in {@code docs/plans/18.md}.
  *
- * A pilot is flying exactly when their entity carries a {@link FlightSession}. Nothing else is
- * authoritative — there is no plugin-side {@code Map<UUID, ...>}, no registry of live drones, and
- * no shutdown hook. Two facts about the server make that sufficient, and both were read out of
- * the decompiled sources:
- *
- * <ol>
- *   <li><strong>Every player exit is one ECS operation.</strong>
- *       {@code PlayerRef.removeFromStore()} (`universe/PlayerRef.java:161`) is a single
- *       {@code Store.removeEntity(ref, RemoveReason.UNLOAD)}, and disconnect, kick, world switch
- *       and world crash all reach it — via {@code Universe.removePlayer}
- *       (`Universe.java:1136-1148`) and {@code World.stopIndividualWorld}
- *       (`World.java:286-291`). So one {@code RefSystem} keyed on {@link FlightSession} sees
- *       every exit exactly once, with the pilot ref still valid and a {@code CommandBuffer} in
- *       hand (`component/Store.java:655-664`). The reason is <em>always</em> {@code UNLOAD},
- *       never {@code REMOVE}, so nothing may branch on it.</li>
- *   <li><strong>A non-serialized entity cannot outlive the process.</strong> Drones carry
- *       {@code NonSerialized} (`component/ComponentRegistry.java:246`), the marker projectiles
- *       and dropped items use, so a drone is never written to a chunk or world save.
- *       {@code kill -9} mid-flight leaves nothing behind by construction — which is necessary,
- *       because the shutdown hooks are not trustworthy: {@code PluginManager.shutdown()} only
- *       calls a plugin's {@code shutdown()} when its state is {@code ENABLED}
- *       (`PluginManager.java:398`), and {@code Universe.shutdownAllWorlds()} never even fires
- *       {@code RemoveWorldEvent} (`Universe.java:678-686`).</li>
- * </ol>
- *
- * Eight exit paths — land, disconnect, kick, world switch, world unload, world crash, clean
- * shutdown, {@code kill -9} — therefore collapse to two ECS callbacks and one marker component.
- *
- * <h2>Threading</h2>
- *
- * {@link #launch} and {@link #land} must run on the world thread: {@code Store.addEntity} calls
- * {@code assertThread()} (`component/Store.java:361`). A caller that might be off-thread must hop
- * through {@code World.execute} (`World.java:750`).
- *
- * <p>They also must not be called from inside a system {@code tick} — {@code Store.addEntity}
- * calls {@code assertWriteProcessing()}. That is the CLAUDE.md convention, and it is why these
- * take a {@link Store} rather than a {@code CommandBuffer}: the signature refuses the misuse.
+ * <p><strong>Caller must be on the world thread, outside any system tick.</strong>
+ * {@code Store.addEntity} calls both {@code assertThread()} and {@code assertWriteProcessing()}
+ * (`component/Store.java:361-362`), so an off-thread caller must hop through
+ * {@code World.execute} (`World.java:750`). Taking a {@link Store} documents the requirement but
+ * does not enforce it — a system's {@code tick} is handed a {@code Store} too, and calling this
+ * from one throws.
  */
 public final class FlightSessions {
 
@@ -75,12 +50,10 @@ public final class FlightSessions {
         this.types = types;
     }
 
-    /** Whether this pilot currently has a flight session. */
     public boolean isFlying(@Nonnull ComponentAccessor<EntityStore> accessor, @Nonnull Ref<EntityStore> pilot) {
         return accessor.getComponent(pilot, this.types.flightSession()) != null;
     }
 
-    /** The drone this pilot is flying, or {@code null} if they are not flying. */
     @Nullable
     public Ref<EntityStore> droneOf(@Nonnull ComponentAccessor<EntityStore> accessor, @Nonnull Ref<EntityStore> pilot) {
         FlightSession session = accessor.getComponent(pilot, this.types.flightSession());
@@ -190,12 +163,7 @@ public final class FlightSessions {
         store.putComponent(pilot, this.types.parkedBody(), new ParkedBody(addInvulnerable, addIntangible));
     }
 
-    /**
-     * Undoes {@link #park}, taking away only the markers we added.
-     *
-     * <p>Takes a {@link ComponentAccessor} so the same code serves a {@link Store} (voluntary
-     * land) and a {@code CommandBuffer} (a system tearing a session down); both implement it.
-     */
+    /** Undoes {@link #park}, taking away only the markers we added. */
     static void unpark(
             @Nonnull ComponentAccessor<EntityStore> accessor,
             @Nonnull Ref<EntityStore> pilot,
@@ -215,13 +183,8 @@ public final class FlightSessions {
     }
 
     /**
-     * The {@link Holder} form of {@link #unpark}, for a pilot entity being added to a store.
-     *
-     * <p>This is the path that survives a crash. {@code Invulnerable} and {@code Intangible} are
-     * serialized components (`modules/entity/EntityModule.java:328,330` register both with an id
-     * and a codec), so a server that dies mid-flight would otherwise bring the pilot back
-     * permanently invulnerable. {@link ParkedBody} is serialized by the same mechanism, so it and
-     * the markers it describes can never disagree.
+     * The {@link Holder} form of {@link #unpark}, for a pilot entity being added to a store. This
+     * is the path that survives a crash; see {@link ParkedBody}.
      */
     static void unpark(@Nonnull Holder<EntityStore> holder, @Nonnull FlightComponentTypes types) {
         ParkedBody parked = holder.getComponent(types.parkedBody());

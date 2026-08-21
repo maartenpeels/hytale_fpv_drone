@@ -27,6 +27,7 @@ import com.maartenpeels.fpv.plugin.drone.FlightSessions;
 import com.maartenpeels.fpv.plugin.drone.ParkedBody;
 
 import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 import java.util.Set;
 
 /**
@@ -37,10 +38,7 @@ import java.util.Set;
  * and race state live in {@code :fpv-core}; see CLAUDE.md decision 10.
  *
  * <p>It is also, deliberately, the only place in the plugin that calls
- * {@code SomeComponent.getComponentType()}. Those static accessors resolve through
- * {@code EntityModule.get()} and only work in a booted server, so per CLAUDE.md's convention the
- * <em>caller</em> resolves component types and everything downstream receives them by
- * constructor injection. {@code setup()} runs in a booted server; a system does not.
+ * {@code SomeComponent.getComponentType()} — see CLAUDE.md's Conventions section.
  */
 public class FPVDrone extends JavaPlugin {
 
@@ -56,26 +54,23 @@ public class FPVDrone extends JavaPlugin {
     @Override
     protected void setup() {
         this.config.save();
-        this.flightSessions = registerFlightComponents();
+        this.flightSessions = installDroneFeature();
         this.getCommandRegistry().registerCommand(new FpvCommand(this));
     }
 
     /**
-     * Registers the drone feature's components and lifecycle systems.
+     * Registers the drone feature's components and lifecycle systems, and builds its service.
      *
      * <p>Ordering is load-bearing: components must be registered before the systems that query
      * them, because {@code registerSystem} validates a system's query against the registry before
      * registering that system's own component declarations.
      */
     @Nonnull
-    private FlightSessions registerFlightComponents() {
+    private FlightSessions installDroneFeature() {
         ComponentRegistryProxy<EntityStore> registry = this.getEntityStoreRegistry();
 
         FlightComponentTypes types = new FlightComponentTypes(
-                // Transient: a session cannot outlive the drone entity it points at, so the
-                // Supplier overload (no id, no codec) is what we want.
                 registry.registerComponent(FlightSession.class, FlightSession.NO_DEFAULT),
-                // Serialized: this is what makes a mid-flight crash recoverable. See ParkedBody.
                 registry.registerComponent(ParkedBody.class, ParkedBody.ID, ParkedBody.CODEC),
                 registry.registerComponent(DroneComponent.class, DroneComponent.NO_DEFAULT),
                 TransformComponent.getComponentType(),
@@ -112,11 +107,11 @@ public class FPVDrone extends JavaPlugin {
     }
 
     /**
-     * Launch and land flight sessions. Available after {@code setup()}.
+     * Launch and land flight sessions. {@code null} until {@code setup()} has run.
      *
      * <p>{@code /fpv launch} and {@code /fpv land} are #22; this is the API they will call.
      */
-    @Nonnull
+    @Nullable
     public FlightSessions getFlightSessions() {
         return this.flightSessions;
     }

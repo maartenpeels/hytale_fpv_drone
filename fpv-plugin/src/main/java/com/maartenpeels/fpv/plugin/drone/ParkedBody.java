@@ -61,12 +61,10 @@ public final class ParkedBody implements Component<EntityStore> {
         this.addedIntangible = addedIntangible;
     }
 
-    /** Whether we added {@code Invulnerable} and must therefore take it away again. */
     public boolean addedInvulnerable() {
         return this.addedInvulnerable;
     }
 
-    /** Whether we added {@code Intangible} and must therefore take it away again. */
     public boolean addedIntangible() {
         return this.addedIntangible;
     }

@@ -221,6 +221,7 @@ class DroneLifecycleSystemsTest {
 
                 Ref<EntityStore> pilot = store.addEntity(holder, AddReason.LOAD);
 
+                assertNotNull(pilot);
                 assertTrue(
                         store.getArchetype(pilot).contains(fixture.types().invulnerable()),
                         "a Creative-mode pilot must stay invulnerable across a crash");
@@ -240,6 +241,7 @@ class DroneLifecycleSystemsTest {
 
                 Ref<EntityStore> pilot = store.addEntity(holder, AddReason.LOAD);
 
+                assertNotNull(pilot);
                 assertTrue(
                         store.getArchetype(pilot).contains(fixture.types().invulnerable()),
                         "without a record we have no claim on the marker");

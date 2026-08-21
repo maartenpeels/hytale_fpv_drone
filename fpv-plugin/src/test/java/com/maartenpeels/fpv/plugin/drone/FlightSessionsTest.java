@@ -195,6 +195,24 @@ class FlightSessionsTest {
                         "the marker we added must still come off");
             }
         }
+
+        @Test
+        void leavesAPreExistingIntangibleAloneOnLanding() {
+            try (HytaleEcsHarness harness = HytaleEcsHarness.create()) {
+                DroneTestFixture fixture = DroneTestFixture.install(harness);
+                Store<EntityStore> store = harness.store();
+                Ref<EntityStore> pilot = fixture.newPilot(store);
+                store.putComponent(pilot, fixture.types().intangible(), Intangible.INSTANCE);
+
+                fixture.sessions().launch(store, pilot, SPAWN, Rotation3f.IDENTITY, null);
+                fixture.sessions().land(store, pilot);
+
+                assertTrue(
+                        store.getArchetype(pilot).contains(fixture.types().intangible()),
+                        "the mirror of the Invulnerable case: neither marker may be stripped blindly");
+                assertFalse(store.getArchetype(pilot).contains(fixture.types().invulnerable()));
+            }
+        }
     }
 
     @Nested
@@ -276,25 +294,4 @@ class FlightSessionsTest {
         }
     }
 
-    @Nested
-    class UnparkedMarkersAreTheOnesWeAdded {
-
-        @Test
-        void landingRestoresACharacterThatHadNeitherMarker() {
-            try (HytaleEcsHarness harness = HytaleEcsHarness.create()) {
-                DroneTestFixture fixture = DroneTestFixture.install(harness);
-                Store<EntityStore> store = harness.store();
-                Ref<EntityStore> pilot = fixture.newPilot(store);
-                store.putComponent(pilot, fixture.types().intangible(), Intangible.INSTANCE);
-
-                fixture.sessions().launch(store, pilot, SPAWN, Rotation3f.IDENTITY, null);
-                fixture.sessions().land(store, pilot);
-
-                assertTrue(
-                        store.getArchetype(pilot).contains(fixture.types().intangible()),
-                        "a pre-existing Intangible must survive the round trip");
-                assertFalse(store.getArchetype(pilot).contains(fixture.types().invulnerable()));
-            }
-        }
-    }
 }

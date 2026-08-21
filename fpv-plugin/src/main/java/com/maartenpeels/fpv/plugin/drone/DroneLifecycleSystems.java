@@ -25,13 +25,7 @@ import java.util.Set;
 /**
  * The systems that make a flight session impossible to leak.
  *
- * <p>Grouped in one holder class following the server's own convention for related systems —
- * {@code EntityTrackerSystems}, {@code HideEntitySystems}, {@code MountSystems},
- * {@code PlayerSystems} all do this.
- *
- * <p>Every one of them takes its {@link com.hypixel.hytale.component.ComponentType}s through
- * {@link FlightComponentTypes} in the constructor, per CLAUDE.md. None of them touch
- * {@code World}, so all five run inside {@code HytaleEcsHarness}.
+ * <p>None of them touch {@code World}, so all five run inside {@code HytaleEcsHarness}.
  */
 public final class DroneLifecycleSystems {
 
@@ -50,11 +44,6 @@ public final class DroneLifecycleSystems {
      * {@code NetworkSendableSpatialSystem} (`modules/entity/system/NetworkSendableSpatialSystem.java:17`),
      * and everything downstream (visibility collection, model updates, the batched
      * {@code EntityUpdates} packet) follows automatically. There is no spawn packet to send.
-     *
-     * <p>The idiom has five precedents: {@code MountSystems.EnsureMinecartComponents:95-130},
-     * {@code ParkourCheckpointSystems.EnsureNetworkSendable:38},
-     * {@code ReachLocationMarkerSystems.EnsureNetworkSendable:46},
-     * {@code SpawnMarkerSystems:133}, {@code ItemSystems.EnsureRequiredComponents:37}.
      */
     public static final class EnsureDroneNetworkSendable extends HolderSystem<EntityStore> {
 
@@ -99,9 +88,8 @@ public final class DroneLifecycleSystems {
      * {@code onEntityRemove} runs while the pilot ref is still valid
      * (`component/Store.java:655-664`).
      *
-     * <p>It deliberately ignores {@link RemoveReason}. Players are removed with {@code UNLOAD}
-     * on <em>every</em> path including a permanent disconnect, so branching on the reason would
-     * be branching on noise.
+     * <p>It deliberately ignores {@link RemoveReason}: players get {@code UNLOAD} on every path,
+     * including a permanent disconnect, so branching on it would be branching on noise.
      */
     public static final class EndSessionOnPilotRemoved extends RefSystem<EntityStore> {
 
@@ -192,9 +180,7 @@ public final class DroneLifecycleSystems {
             }
 
             Ref<EntityStore> pilot = drone.getPilot();
-            // Routinely invalid: when the pilot goes first, Store.removeEntity invalidates their
-            // ref (`component/Store.java:666-681`) before consuming the buffered drone removal
-            // (`:686`). In that case the pilot's own teardown has it covered.
+            // Routinely invalid -- see DroneComponent.getPilot(). The pilot's own teardown has it.
             if (!pilot.isValid()) {
                 return;
             }
@@ -215,12 +201,9 @@ public final class DroneLifecycleSystems {
     /**
      * Restores a parked character when the pilot entity is added to a store.
      *
-     * <p>Restoration hangs off <em>add</em> rather than remove, and that is the whole reason a
-     * mid-flight crash is recoverable. {@link ParkedBody} and the markers it describes are all
-     * serialized, so they survive together or not at all; whenever the pilot next appears in a
-     * store — next world after a switch, next login after a crash — this unwinds them.
-     * {@code FlightSessions.land} calls the same helper eagerly, so a voluntary land needs no
-     * round trip.
+     * <p>Restoration hangs off <em>add</em> rather than remove, which is what makes a mid-flight
+     * crash recoverable: whenever the pilot next appears in a store — next world after a switch,
+     * next login after a crash — this unwinds them. See {@link ParkedBody}.
      *
      * <p>Mutating the holder here is supported: {@code Store.addEntity} re-reads
      * {@code holder.getArchetype()} before testing each holder system
@@ -263,35 +246,25 @@ public final class DroneLifecycleSystems {
     /**
      * Hides parked characters from every client, unconditionally.
      *
-     * <p>Nothing in the server hides an entity unconditionally, so this is a near-verbatim copy of
+     * <p>Nothing in the server hides an entity unconditionally — both built-in mechanisms are
+     * gated on client-side state, and removing {@code ModelComponent} or zeroing scale provably
+     * do nothing. {@code docs/plans/18.md} records all six alternatives and the evidence against
+     * each. So this is a near-verbatim copy of
      * {@code HideEntitySystems.AdventurePlayerSystem} (`modules/entity/system/HideEntitySystems.java:28-92`)
      * with its gamemode/settings gate dropped and {@link ParkedBody} in place of
      * {@code HiddenFromAdventurePlayers}. Pruning {@code EntityViewer.visible} after
-     * {@code CollectVisible} is a real extension point — three builtin systems use it — and
+     * {@code CollectVisible} is a supported extension point — three builtin systems use it — and
      * {@code SendPackets} emits the despawn for free, because it treats "no longer visible" and
      * "was destroyed" identically (`modules/entity/tracker/EntityTrackerSystems.java:1029-1031`).
      *
-     * <p>The alternatives were all checked and all rejected. Removing {@code ModelComponent} does
-     * nothing — {@code EntityTrackerSystems.EntityModel}'s query requires it (`:488`) and asserts
-     * it non-null (`:519`), so the null-model branch at `:545` is unreachable and no packet is
-     * sent at all. A model scale of {@code 0} is the <em>unset</em> sentinel (`:520`). Removing
-     * {@code NetworkId} is not reversible — the id is reallocated and
-     * {@code PlayerSystems.sendPlayerSelf} throws without one (`PlayerSystems.java:571-573`). No
-     * invisibility entity effect exists anywhere in the tree. And both built-in hide mechanisms
-     * are conditional on client state: {@code HiddenPlayersManager} is gated on
-     * {@code !showEntityMarkers()} (`EntityTrackerSystems.java:801`), a client-sent preference,
-     * and {@code HiddenFromAdventurePlayers} on {@code gameMode == Adventure ||
-     * !showEntityMarkers()} (`HideEntitySystems.java:81`).
-     *
-     * <p><strong>This is the most fragile file in the feature.</strong> It reaches into a public
-     * mutable field of an internal class. It is also one system whose worst failure is a visible
-     * parked body, never a crash, which is why the trade was worth taking.
+     * <p><strong>This is the most fragile file in the feature</strong> — it reaches into a public
+     * mutable field of an internal class, so it is the likeliest thing here to break on 0.6.0.
+     * Its worst failure mode is a visible parked body, never a crash.
      *
      * <p>The group and dependencies are constructor parameters because
      * {@code SystemGroup.validateRegistry} throws for a group belonging to another registry
-     * (`component/SystemGroup.java:36-40`) — the plugin passes
-     * {@code FIND_VISIBLE_ENTITIES_GROUP} and an {@code AFTER CollectVisible} dependency, and a
-     * test passes {@code null} and an empty set so the pruning logic stays inside the harness.
+     * (`component/SystemGroup.java:36-40`), which would put this system out of the harness's
+     * reach.
      */
     public static final class HideParkedBody extends EntityTickingSystem<EntityStore> {
 

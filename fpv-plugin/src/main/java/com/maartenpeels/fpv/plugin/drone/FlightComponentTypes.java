@@ -16,24 +16,18 @@ import com.hypixel.hytale.server.core.universe.world.storage.EntityStore;
 /**
  * Every {@link ComponentType} the drone feature touches, resolved once and passed everywhere.
  *
- * <p>This exists because of the constructor-injection convention in CLAUDE.md, and it exists as
- * one object rather than thirteen constructor parameters per system. The static accessors on
- * Hytale's components — {@code TransformComponent.getComponentType()} and friends — resolve
- * through {@code EntityModule.get()}, whose singleton is only assigned in a booted server
- * (`modules/entity/EntityModule.java:304`), so anything that calls them is untestable. The
- * caller resolves them; {@code FPVDrone.setup()} does that for the server, and the test source
- * set builds an instance against a {@code HytaleEcsHarness} registry.
- *
- * <p>All thirteen have distinct type arguments, so the compiler catches a mis-ordered
- * construction rather than leaving it to fail at runtime.
+ * <p>{@code FPVDrone.setup()} builds it for the server; the test source set builds one against a
+ * {@code HytaleEcsHarness} registry. See CLAUDE.md's Conventions section for why systems never
+ * resolve their own types.
  *
  * <p>Deliberately absent: {@code PersistentModel}. All four spawn precedents in the server
  * ({@code ProjectileModule}, {@code DeployablesUtils}, {@code SpawnMinecartInteraction},
  * {@code NPCPlugin}) add it, but it is only the <em>serialized</em> form of an appearance and a
- * drone is a {@code NonSerialized} entity, so there is nothing to serialize. Verified safe to
- * omit: {@code ModelSystems.ModelChange.getQuery()} returns the {@code PersistentModel} type
- * (`modules/entity/system/ModelSystems.java:191-194`), so its {@code assert persistentModel
- * != null` at `:215` is unreachable for an entity that never had one.
+ * drone is a {@code NonSerialized} entity. Verified safe to omit:
+ * {@code ModelSystems.ModelChange.getQuery()} returns the {@code PersistentModel} type
+ * (`modules/entity/system/ModelSystems.java:191-194`), so the
+ * {@code assert persistentModel != null} at `:215` is unreachable for an entity that never had
+ * one.
  *
  * @param flightSession our per-pilot session marker; see {@link FlightSession}
  * @param parkedBody our parked-character record; see {@link ParkedBody}

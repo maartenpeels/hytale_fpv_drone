@@ -16,6 +16,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -166,7 +167,7 @@ class DroneModelTest {
         }
 
         private static List<JsonObject> collectBoxShapes(@Nonnull JsonArray nodes) {
-            List<JsonObject> boxes = new java.util.ArrayList<>();
+            List<JsonObject> boxes = new ArrayList<>();
             for (JsonElement element : nodes) {
                 JsonObject node = element.getAsJsonObject();
                 JsonObject shape = node.getAsJsonObject("shape");
