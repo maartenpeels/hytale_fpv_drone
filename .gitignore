@@ -13,7 +13,14 @@ run/
 
 # Scaffolding created by external launcher tooling. The Gradle dev flow uses run/ via
 # runServer; see CLAUDE.md "How runServer actually works".
-server/
+#
+# Anchored with a leading slash on purpose. Unanchored, git matches the pattern at every
+# depth, and because macOS sets core.ignorecase=true it also matched `Server/` -- which is the
+# mandatory name of an asset pack's server-side asset directory
+# (`AssetRegistryLoader.java:237` resolves `<packRoot>/Server`). That silently swallowed
+# fpv-plugin/src/main/resources/Server/Models/, so the drone's model asset built into the jar
+# but never made it into git.
+/server/
 *.bak
 # Agent worktrees (parallel-work skill)
 .worktrees/
