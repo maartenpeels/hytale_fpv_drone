@@ -70,4 +70,32 @@ public record PilotInputSample(
     public boolean hasLook() {
         return Double.isFinite(this.lookYaw) && Double.isFinite(this.lookPitch);
     }
+
+    /**
+     * The same sample with its look angles erased — the wish axes kept, the look reported as absent.
+     *
+     * <p>This is what a tick that received <em>no packet at all</em> feeds the mapper when it wants to
+     * hold the left stick where the pilot left it. A physical throttle and yaw stick stay put when a
+     * hand comes off them; pitch and roll ride a look delta, and no new look means no deflection.
+     *
+     * <p><strong>Why not just re-feed the whole sample.</strong> Doing that looks equivalent — the
+     * look angles now equal the tracked ones, so the delta is zero — but {@link PilotInputMapper#map}
+     * answers a {@link LookTrack} sampled <em>now</em>, resetting {@link LookTrack#secondsSinceSample}
+     * to zero. Five quiet ticks followed by one real sample would then divide a five-tick delta by one
+     * tick's {@code dt}, over-reporting the look rate five-fold. That is the exact bug #17's
+     * self-review caught, reintroduced through the retry path. Erasing the look angles takes
+     * {@code map}'s {@link LookTrack#aged} branch instead, which accumulates the interval the next
+     * delta will really have spanned.
+     *
+     * <p>{@link #wishFrameYaw} is kept. It was resolved from a real look yaw when the packet arrived,
+     * {@code map} prefers it over the look angles anyway, and dropping it would leave the wish vector
+     * uninterpretable — a world-space vector says nothing without the frame it was rotated into.
+     */
+    public PilotInputSample withoutLook() {
+        if (!Double.isFinite(this.lookYaw) && !Double.isFinite(this.lookPitch)) {
+            return this;
+        }
+        return new PilotInputSample(
+                this.wishX, this.wishZ, this.wishFrameYaw, Double.NaN, Double.NaN);
+    }
 }
