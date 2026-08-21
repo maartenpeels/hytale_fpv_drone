@@ -530,10 +530,15 @@ class SweptAabbTest {
     }
 
     /**
-     * {@code −0.0} is arithmetically zero and unequal to {@code 0.0} under the bit equality that
-     * records, {@code assertEquals} and every {@code Map} key use. A caller comparing a normal to
-     * {@code new Vec3(-1, 0, 0)} must not lose to a sign bit, so the routine's own boundary is held
-     * free of it — independently of {@code Vec3.negated()}, which does produce {@code −0.0}.
+     * {@code −0.0} is arithmetically zero and unequal to {@code 0.0} under the equality that records
+     * and every {@code Map} key use. A caller comparing a normal to {@code new Vec3(-1, 0, 0)} must
+     * not lose to a sign bit, so this pins that the routine never hands one out.
+     *
+     * <p>Since #38 the guarantee comes from {@code Vec3}'s canonical constructor rather than from a
+     * collapse inside {@code SweptAabb} or {@code Contact}. These tests stay, and are the most
+     * valuable coverage of that fix in the repo: they reach it through a real caller across every
+     * axis and sign combination, which is exactly what a unit test of {@code Vec3} in isolation does
+     * not do.
      */
     @Nested
     class SignedZero {

@@ -15,10 +15,26 @@ package com.maartenpeels.fpv.math;
  * sign conventions (verified: {@code Direction.pitch} is positive nose-<em>up</em>, the opposite of
  * {@link com.maartenpeels.fpv.control.ControlInput}), and that mapping belongs to the plugin-side
  * camera adapter where the packet can actually be tested against.
+ *
+ * <p>Components are held free of {@code −0.0}, for the reason given on {@link SignedZero}. Note that
+ * this is a separate concern from the unit-length question above: normalising the <em>sign of a
+ * zero</em> cannot change any arithmetic result, whereas normalising the <em>length</em> would.
  */
 public record Quat(double w, double x, double y, double z) {
 
     public static final Quat IDENTITY = new Quat(1, 0, 0, 0);
+
+    /**
+     * Not a no-op — see {@link SignedZero}. {@link #conjugate()} is the operation that needs it:
+     * without this, {@code IDENTITY.conjugate()} is {@code (1, −0.0, −0.0, −0.0)}, which does not
+     * {@code equals} {@code IDENTITY}. {@link #rotate} propagates the same thing into {@link Vec3}.
+     */
+    public Quat {
+        w = SignedZero.canonical(w);
+        x = SignedZero.canonical(x);
+        y = SignedZero.canonical(y);
+        z = SignedZero.canonical(z);
+    }
 
     /** A rotation of {@code radians} about {@code axis}, by the right-hand rule. */
     public static Quat fromAxisAngle(Vec3 axis, double radians) {
