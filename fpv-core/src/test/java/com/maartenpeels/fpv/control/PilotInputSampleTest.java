@@ -2,6 +2,7 @@ package com.maartenpeels.fpv.control;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import org.junit.jupiter.api.Nested;
@@ -70,6 +71,57 @@ class PilotInputSampleTest {
             assertEquals(-0.25, sample.lookPitch());
             assertEquals(0.25, sample.wishX());
             assertEquals(-0.5, sample.wishZ());
+        }
+    }
+
+    @Nested
+    class WithoutLook {
+
+        @Test
+        void keepsTheWishAxesSoAHeldThrottleAndYawStayWhereThePilotLeftThem() {
+            PilotInputSample held =
+                    PilotInputSample.lookRelative(0.25, -0.5, 1.75, -0.25).withoutLook();
+
+            assertEquals(0.25, held.wishX());
+            assertEquals(-0.5, held.wishZ());
+        }
+
+        @Test
+        void erasesBothLookAnglesSoTheMapperTakesItsAgeingBranchRatherThanResettingTheClock() {
+            PilotInputSample held =
+                    PilotInputSample.lookRelative(0.25, -0.5, 1.75, -0.25).withoutLook();
+
+            assertFalse(held.hasLook());
+            assertTrue(Double.isNaN(held.lookYaw()));
+            assertTrue(Double.isNaN(held.lookPitch()));
+        }
+
+        @Test
+        void keepsTheWishFrameYawBecauseAWorldSpaceVectorIsUninterpretableWithoutIt() {
+            // Dropping this would centre both wish axes on every quiet tick -- the mapper cannot
+            // un-rotate a world-space vector whose frame it does not know, and the frame was
+            // resolved from a real look yaw when the packet arrived.
+            PilotInputSample held =
+                    PilotInputSample.lookRelative(0.25, -0.5, 1.75, -0.25).withoutLook();
+
+            assertEquals(1.75, held.wishFrameYaw());
+        }
+
+        @Test
+        void isIdempotentAndReturnsItselfWhenThereWasNoLookToErase() {
+            PilotInputSample noLook = new PilotInputSample(0.25, -0.5, 1.75, Double.NaN, Double.NaN);
+
+            assertSame(noLook, noLook.withoutLook());
+            assertSame(PilotInputSample.EMPTY, PilotInputSample.EMPTY.withoutLook());
+        }
+
+        @Test
+        void erasesAHalfPresentLookRatherThanKeepingTheFiniteHalf() {
+            // hasLook() is already false for a half-present look, but leaving the finite angle in
+            // place would let it silently become a delta origin if the other angle ever arrived.
+            PilotInputSample halfPresent = new PilotInputSample(0.0, 0.0, 0.0, 1.0, Double.NaN);
+
+            assertTrue(Double.isNaN(halfPresent.withoutLook().lookYaw()));
         }
     }
 }

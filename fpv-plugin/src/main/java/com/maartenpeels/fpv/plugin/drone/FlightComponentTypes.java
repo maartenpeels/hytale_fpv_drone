@@ -32,6 +32,7 @@ import com.hypixel.hytale.server.core.universe.world.storage.EntityStore;
  * @param flightSession our per-pilot session marker; see {@link FlightSession}
  * @param parkedBody our parked-character record; see {@link ParkedBody}
  * @param drone our drone marker; see {@link DroneComponent}
+ * @param droneFlight the simulated flight state and the pilot id it flies on; see {@link DroneFlight}
  * @param transform position and rotation
  * @param headRotation look direction, read by {@code TransformSystems.EntityTrackerUpdate}
  * @param uuid stable identity, needed for UUID lookup
@@ -48,6 +49,7 @@ public record FlightComponentTypes(
         ComponentType<EntityStore, FlightSession> flightSession,
         ComponentType<EntityStore, ParkedBody> parkedBody,
         ComponentType<EntityStore, DroneComponent> drone,
+        ComponentType<EntityStore, DroneFlight> droneFlight,
         ComponentType<EntityStore, TransformComponent> transform,
         ComponentType<EntityStore, HeadRotation> headRotation,
         ComponentType<EntityStore, UUIDComponent> uuid,
