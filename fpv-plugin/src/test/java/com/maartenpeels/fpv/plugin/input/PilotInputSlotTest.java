@@ -7,6 +7,7 @@ import com.maartenpeels.fpv.control.ControlInput;
 import com.maartenpeels.fpv.control.PilotInputMapper;
 import com.maartenpeels.fpv.control.PilotInputMapping;
 import com.maartenpeels.fpv.control.PilotInputSample;
+import com.maartenpeels.fpv.flight.QuadParameters;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 
@@ -22,8 +23,12 @@ class PilotInputSlotTest {
 
     private static final double TICK_30_TPS = 1.0 / 30.0;
 
+    /** Where a centred throttle stick sits on the default airframe. Derived, never restated (#45). */
+    private static final float HOVER = (float) QuadParameters.DEFAULT.hoverCollective();
+
     /** The mapper is stateless and shared, exactly as it is in production. */
-    private static final PilotInputMapper MAPPER = new PilotInputMapper(PilotInputMapping.DEFAULT);
+    private static final PilotInputMapper MAPPER = new PilotInputMapper(
+                    PilotInputMapping.DEFAULT, QuadParameters.DEFAULT.hoverCollective());
 
     /**
      * The look-yaw change that means full roll stick in one 30 TPS tick.
@@ -201,10 +206,11 @@ class PilotInputSlotTest {
         }
 
         @Test
-        void restsThrottleAtMidStickBeforeAnyPacketHasArrived() {
+        void restsThrottleAtHoverBeforeAnyPacketHasArrived() {
             // A drone that armed and has not yet heard from its pilot. Motors-off would be the worst
-            // available answer; mid-stick is where a spring-centred throttle sits.
-            assertEquals(0.5f, new PilotInputSlot().nextInput(MAPPER, TICK_30_TPS).throttle(), 1e-6);
+            // available answer, and mid-scale -- what this asserted before #45 -- is a 1 g climb.
+            assertEquals(
+                    HOVER, new PilotInputSlot().nextInput(MAPPER, TICK_30_TPS).throttle(), 1e-6);
         }
     }
 
@@ -229,7 +235,7 @@ class PilotInputSlotTest {
                 last = quietTick(slot);
             }
 
-            assertEquals(0.5f, last.throttle(), 1e-6);
+            assertEquals(HOVER, last.throttle(), 1e-6);
             assertEquals(0f, last.yaw());
         }
 

@@ -30,6 +30,15 @@ package com.maartenpeels.fpv.control;
  * <p>Per-pilot, so this does <em>not</em> belong in {@code FpvConfig} — see that class' javadoc.
  * {@link #DEFAULT} stands in until {@code PilotProfile} exists.
  *
+ * <h2>What is deliberately not here</h2>
+ *
+ * The hover throttle. #45 wanted it here, and it does not belong: everything in this record is a
+ * property of the pilot's <em>input device</em>, while where the throttle stick has to sit to hold
+ * altitude is a property of the <em>airframe</em> — {@code QuadParameters.hoverCollective()}. It is a
+ * constructor argument of {@link PilotInputMapper} instead, sourced from the airframe the integrator
+ * is built on. See that constructor for the full argument, including why importing
+ * {@code QuadParameters} here would knot two packages together.
+ *
  * @param wishFullScale magnitude of {@code wishMovement} at full deflection; must be finite and
  *     positive
  * @param rollLookRateFullScale look-yaw rate in rad/s that means full roll stick; must be finite and

@@ -191,8 +191,14 @@ public class FPVDrone extends JavaPlugin {
             @Nonnull FlightComponentTypes types) {
 
         FpvConfig fpv = this.config.get();
+        // One airframe, read once, feeding both the integrator and the input mapper. The mapper needs
+        // it because a centred throttle stick has to command *hover*, and hover is a property of the
+        // frame: sqrt(1/thrustToWeight), not mid-scale. #45 was these two disagreeing — the mapper
+        // rested at 0.5 while the frame hovered at 0.354, which is a permanent 1 g climb. Deriving it
+        // from the same value the integrator flies is what stops them drifting again.
+        QuadParameters airframe = QuadParameters.DEFAULT;
         FlightTick flightTick =
-                new FlightTick(new QuadIntegrator(QuadParameters.DEFAULT), fpv.getPhysicsSubsteps());
+                new FlightTick(new QuadIntegrator(airframe), fpv.getPhysicsSubsteps());
 
         registry.registerSystem(new FlightTickSystems.EnsureDroneFlight(types));
         registry.registerSystem(new FlightTickSystems.TrackPilotInput(types, this.pilotInputs));
@@ -207,7 +213,7 @@ public class FPVDrone extends JavaPlugin {
                 types,
                 flightTick,
                 this.pilotInputs,
-                new PilotInputMapper(PilotInputMapping.DEFAULT),
+                new PilotInputMapper(PilotInputMapping.DEFAULT, airframe.hoverCollective()),
                 1.0 / fpv.getWorldTps(),
                 // #21 replaces this with terrain collision, called per substep so a fast drone cannot
                 // tunnel between two of them.

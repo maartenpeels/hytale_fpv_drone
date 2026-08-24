@@ -9,6 +9,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import com.maartenpeels.fpv.control.PilotInputMapper;
 import com.maartenpeels.fpv.control.PilotInputMapping;
 import com.maartenpeels.fpv.control.PilotInputSample;
+import com.maartenpeels.fpv.flight.QuadParameters;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -21,7 +22,8 @@ import org.junit.jupiter.api.Test;
  */
 class PilotInputBufferTest {
 
-    private static final PilotInputMapper MAPPER = new PilotInputMapper(PilotInputMapping.DEFAULT);
+    private static final PilotInputMapper MAPPER = new PilotInputMapper(
+                    PilotInputMapping.DEFAULT, QuadParameters.DEFAULT.hoverCollective());
 
     private static PilotInputSample forward() {
         return PilotInputSample.lookRelative(0.0, -1.0, 0.0, 0.0);

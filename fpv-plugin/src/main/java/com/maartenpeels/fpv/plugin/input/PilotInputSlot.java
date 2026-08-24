@@ -61,8 +61,10 @@ import java.util.concurrent.atomic.AtomicReference;
  * Holding the wish axes indefinitely would mean a frozen client — TCP buffered, process suspended,
  * not disconnected, so #18's teardown never fires — leaves the drone at whatever throttle it last had,
  * climbing away unattended. After {@link #MAX_HELD_SECONDS} without a fresh packet the slot switches
- * to {@link PilotInputMapper#centred}, which rests the throttle at mid-stick rather than cutting the
- * motors. In seconds rather than ticks, so it does not change meaning at 240 TPS.
+ * to {@link PilotInputMapper#centred}, which rests the throttle at <em>hover</em> rather than cutting
+ * the motors — so the drone stops where it is instead of continuing to climb, which is what #45 fixed:
+ * this cutoff used to hand back a mid-scale throttle, i.e. the very unattended climb it exists to
+ * stop. In seconds rather than ticks, so it does not change meaning at 240 TPS.
  */
 public final class PilotInputSlot {
 

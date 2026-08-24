@@ -22,14 +22,51 @@ package com.maartenpeels.fpv.control;
  * <p>Left gives throttle and yaw, right gives pitch and roll: that is a Mode 2 layout, axis for
  * axis, which is why the assignment is worth spelling out rather than just doing.
  *
- * <h2>Throttle is remapped bipolar, not clipped</h2>
+ * <h2>Throttle is remapped bipolar, not clipped — and centre means hover</h2>
  *
- * {@code throttle = (forward + 1) / 2}. A quad's throttle is unidirectional, so it is tempting to
- * write {@code max(0, forward)} — but the stick feeding it is <em>spring-centred</em>, and a
- * spring-centred throttle rests at mid-stick, not at motors-off. Clipping would throw away half the
- * travel and make mid-throttle the one position a pilot cannot hold. The bipolar remap also degrades
- * correctly onto a keyboard, which matters because that is how #24 gets flown first: no key is
- * mid-stick, {@code W} climbs, {@code S} descends.
+ * A quad's throttle is unidirectional, so it is tempting to write {@code max(0, forward)} — but the
+ * stick feeding it is <em>spring-centred</em>, so it spends most of its life at centre. Clipping
+ * would throw away half the travel and make the resting position the one throttle a pilot cannot
+ * hold. So the remap is bipolar, and it degrades correctly onto a keyboard, which matters because
+ * that is how #24 gets flown first: no key is centre, {@code W} climbs, {@code S} descends.
+ *
+ * <p>What centre <em>is</em>, though, is the part #45 got wrong. The old map was
+ * {@code (forward + 1) / 2}, which rests at {@code 0.5} — mid-<em>scale</em>. That is where a
+ * spring-centred stick sits mechanically, and it is not where the airframe hovers: motor thrust goes
+ * with the square of the command, so on the default frame hover is at
+ * {@code sqrt(1/8) ≈ 0.354} and {@code 0.5} is a sustained 1 g climb that never stops. Centre must
+ * command <em>hover</em>, not mid-scale. The map is therefore piecewise, pinning both endpoints
+ * around a centre that the airframe chooses:
+ *
+ * <pre>
+ *   forward &gt;= 0 :  throttle = hover + forward * (1 - hover)
+ *   forward &lt;  0 :  throttle = hover * (1 + forward)
+ * </pre>
+ *
+ * So full forward is full throttle, full back is motors-off, and letting go holds altitude. The two
+ * halves have different gains, which is correct rather than a compromise: there is more thrust above
+ * hover than below it, and a linear map through hover would either clip the top or waste the bottom.
+ *
+ * <h2>Why {@code hoverThrottle} is a constructor argument and not a field on {@link PilotInputMapping}</h2>
+ *
+ * Where hover sits is a property of the <em>airframe</em> — {@code QuadParameters.hoverCollective()}
+ * — and it must never be written down twice, because a retune moves it. Two reasons it arrives as an
+ * argument rather than by importing that class here:
+ *
+ * <ul>
+ *   <li><b>It would close a package cycle.</b> {@code com.maartenpeels.fpv.flight} already depends on
+ *       this package — the integrator consumes {@link ControlInput} — and that is the data flow:
+ *       sticks feed the flight model. Reaching back the other way would make the two packages
+ *       mutually dependent.
+ *   <li><b>{@link PilotInputMapping} is device calibration, per pilot.</b> Hover is a fact about the
+ *       frame, server-wide. {@code QuadParameters} draws the same line from the other side: full-stick
+ *       rate moved out of it in #15 because a tune is not a frame property.
+ * </ul>
+ *
+ * <p>So the composition root, which already picks the airframe to build the integrator from, hands the
+ * same airframe's {@code hoverCollective()} to this. That binds the mapping to the frame actually
+ * being flown rather than to a default constant, so #5's per-pilot tunes cannot drift from their own
+ * hover point either.
  *
  * <h2>Pitch and roll come from the look <em>delta</em>, not the look angle</h2>
  *
@@ -92,16 +129,54 @@ public final class PilotInputMapper {
     private static final double TWO_PI = 2.0 * Math.PI;
 
     private final PilotInputMapping mapping;
+    private final double hoverThrottle;
 
-    public PilotInputMapper(PilotInputMapping mapping) {
+    /**
+     * @param mapping what counts as full deflection on each channel
+     * @param hoverThrottle the collective that holds altitude on the airframe being flown, i.e.
+     *     {@code QuadParameters.hoverCollective()}. Must be finite and within {@code (0, 1]}.
+     *     <p>Above {@code 1} is rejected rather than clamped. {@code hoverCollective()} deliberately
+     *     answers more than {@code 1} for a frame whose thrust cannot beat its own weight, and there
+     *     is no mapping that flies such a frame: clamping to {@code 1} would hide the broken tune
+     *     behind a drone that nearly works, and passing it through would give the forward half of the
+     *     travel a <em>negative</em> slope — pushing the throttle stick up would spin the motors
+     *     down. Failing once here, at wiring time, is the loudest available answer. It throws for the
+     *     same reason {@code dt} does: this is our own airframe configuration, not an untrusted
+     *     packet.
+     */
+    public PilotInputMapper(PilotInputMapping mapping, double hoverThrottle) {
         if (mapping == null) {
             throw new IllegalArgumentException("mapping must not be null");
         }
+        if (!Double.isFinite(hoverThrottle) || hoverThrottle <= 0.0 || hoverThrottle > 1.0) {
+            throw new IllegalArgumentException(
+                    "hoverThrottle must be finite and within (0, 1] but was "
+                            + hoverThrottle
+                            + "; an airframe whose thrust cannot lift its own weight has no flyable"
+                            + " throttle mapping");
+        }
         this.mapping = mapping;
+        this.hoverThrottle = hoverThrottle;
     }
 
     public PilotInputMapping mapping() {
         return this.mapping;
+    }
+
+    /** The collective a centred throttle stick commands — see the constructor. */
+    public double hoverThrottle() {
+        return this.hoverThrottle;
+    }
+
+    /**
+     * Sticks centred and throttle at hover: what this mapper answers for a centred stick, as a value
+     * rather than as a call needing a {@link LookTrack} and a {@code dt}.
+     *
+     * <p>Exists so that callers needing "the neutral input" — {@code FlightTickSystems}' missing-slot
+     * fallback — cannot write the constant down again. That is precisely how #45 happened.
+     */
+    public ControlInput hovering() {
+        return new ControlInput((float) this.hoverThrottle, 0f, 0f, 0f);
     }
 
     /**
@@ -112,7 +187,7 @@ public final class PilotInputMapper {
      *
      * <ul>
      *   <li>A non-finite wish component counts as zero <em>before</em> the bipolar remap, so throttle
-     *       rests at mid-stick. Letting {@code NaN} reach {@link ControlInput#clamped} would collapse
+     *       rests at hover. Letting {@code NaN} reach {@link ControlInput#clamped} would collapse
      *       throttle to closed — cutting the motors is the worst available response to one bad packet.
      *   <li>An out-of-range wish component saturates its axis via {@link ControlInput#clamped}.
      *   <li>An absent or non-finite look angle gives zero pitch/roll deflection and <em>keeps</em> the
@@ -176,7 +251,7 @@ public final class PilotInputMapper {
 
         ControlInput input =
                 ControlInput.clamped(
-                        stick((forward + 1.0) / 2.0),
+                        stick(this.throttleFrom(forward)),
                         stick(rollStick),
                         stick(pitchStick),
                         stick(lateral));
@@ -184,18 +259,35 @@ public final class PilotInputMapper {
     }
 
     /**
-     * The answer for a tick that received no packet at all: sticks centred, throttle resting at
-     * mid-stick, and the look memory aged by the tick so the next real sample still divides by the
-     * interval it actually spanned.
+     * The forward stick axis as a collective, hinged at hover. See the class javadoc for why the two
+     * halves have different gains.
      *
-     * <p>Mid-stick rather than closed for the same reason the remap is bipolar — it is where a
-     * spring-centred throttle sits. A pilot whose client has gone quiet gets the drone's last
-     * commanded attitude and a neutral throttle, which is a survivable failure; motors-off is not.
+     * <p>{@code -0.0} takes the upper branch, since {@code -0.0 >= 0.0} — which is what we want, and
+     * either branch answers {@code hover} there anyway. Out-of-range deflection from an overdriven
+     * wish vector is left to overshoot and is saturated by {@link ControlInput#clamped}, so the
+     * clamping rule stays in one place.
+     */
+    private double throttleFrom(double forward) {
+        return forward >= 0.0
+                ? this.hoverThrottle + forward * (1.0 - this.hoverThrottle)
+                : this.hoverThrottle * (1.0 + forward);
+    }
+
+    /**
+     * The answer for a tick that received no packet at all: sticks centred, throttle resting at
+     * <em>hover</em>, and the look memory aged by the tick so the next real sample still divides by
+     * the interval it actually spanned.
+     *
+     * <p>Hover rather than closed for the same reason the remap is bipolar — it is where a
+     * spring-centred throttle sits, and #45 is the reminder that "where the stick sits" and "what the
+     * airframe does there" are two different numbers. A pilot whose client has gone quiet gets the
+     * drone's last commanded attitude and a throttle that holds altitude, which is a survivable
+     * failure; motors-off is not, and neither is the old mid-scale value's steady climb.
      */
     public PilotInputUpdate centred(LookTrack track, double dt) {
         requirePresent(track, "track");
         requireUsableDt(dt);
-        return new PilotInputUpdate(new ControlInput(0.5f, 0f, 0f, 0f), track.aged(dt));
+        return new PilotInputUpdate(this.hovering(), track.aged(dt));
     }
 
     /**

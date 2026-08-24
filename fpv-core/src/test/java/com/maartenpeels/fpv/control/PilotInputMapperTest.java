@@ -5,6 +5,11 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.maartenpeels.fpv.flight.FlightState;
+import com.maartenpeels.fpv.flight.FlightTick;
+import com.maartenpeels.fpv.flight.QuadIntegrator;
+import com.maartenpeels.fpv.flight.QuadParameters;
+import com.maartenpeels.fpv.math.Vec3;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -17,7 +22,27 @@ class PilotInputMapperTest {
     /** 30 TPS, the Hytale default. */
     private static final double DT = 1.0 / 30.0;
 
-    private final PilotInputMapper mapper = new PilotInputMapper(PilotInputMapping.DEFAULT);
+    /**
+     * Where the default airframe hovers — {@code sqrt(1/8) ≈ 0.354}, never written as a decimal.
+     *
+     * <p>Deriving it here is the point of #45: the old expectations restated the mapper's own
+     * {@code (forward + 1) / 2} and so agreed with it about a value the airframe disagreed with. The
+     * assertions that actually catch that are in {@link HoldsAltitudeOnTheRealAirframe}, which flies
+     * the mapping rather than restating it.
+     */
+    private static final double HOVER = QuadParameters.DEFAULT.hoverCollective();
+
+    /** The upper half's expectation, spelled as the curve rather than as a number. */
+    private static double climbing(double forward) {
+        return HOVER + forward * (1.0 - HOVER);
+    }
+
+    /** …and the lower half's. */
+    private static double descending(double forward) {
+        return HOVER * (1.0 + forward);
+    }
+
+    private final PilotInputMapper mapper = new PilotInputMapper(PilotInputMapping.DEFAULT, HOVER);
 
     /** Hytale's world-space wish vector for a pilot at {@code yaw} pushing the stick fully forward. */
     private static PilotInputSample forwardStickAt(double yaw) {
@@ -37,8 +62,20 @@ class PilotInputMapperTest {
     class ThrottleFromForwardAxis {
 
         @Test
-        void restsAtMidStickWithTheStickCentredBecauseTheStickIsSpringCentred() {
-            assertEquals(0.5f, fly(LookTrack.UNSET, PilotInputSample.EMPTY).throttle(), TOLERANCE);
+        void restsAtHoverWithTheStickCentredBecauseLettingGoMustHoldAltitude() {
+            assertEquals(
+                    (float) HOVER,
+                    fly(LookTrack.UNSET, PilotInputSample.EMPTY).throttle(),
+                    TOLERANCE);
+        }
+
+        @Test
+        void doesNotRestAtMidScaleBecauseThatIsWhereTheStickSitsNotWhereTheAirframeHovers() {
+            float centre = fly(LookTrack.UNSET, PilotInputSample.EMPTY).throttle();
+
+            assertTrue(
+                    centre < 0.5f - TOLERANCE,
+                    "centre must command hover, not mid-scale, but was " + centre);
         }
 
         @Test
@@ -50,23 +87,39 @@ class PilotInputMapperTest {
         }
 
         @Test
-        void mapsHalfStickToThreeQuartersBecauseTheRemapIsBipolarNotClipped() {
+        void spendsTheUpperHalfOfTheTravelBetweenHoverAndFullThrottle() {
             PilotInputSample halfForward = PilotInputSample.lookRelative(0.0, -0.5, 0.0, 0.0);
 
-            assertEquals(0.75f, fly(LookTrack.UNSET, halfForward).throttle(), TOLERANCE);
+            assertEquals(
+                    (float) climbing(0.5), fly(LookTrack.UNSET, halfForward).throttle(), TOLERANCE);
         }
 
         @Test
-        void keepsDescendingTravelInsteadOfClippingItAwayAtMidStick() {
+        void keepsDescendingTravelInsteadOfClippingItAwayBelowHover() {
             PilotInputSample halfBack = PilotInputSample.lookRelative(0.0, 0.5, 0.0, 0.0);
 
-            assertEquals(0.25f, fly(LookTrack.UNSET, halfBack).throttle(), TOLERANCE);
+            assertEquals(
+                    (float) descending(-0.5), fly(LookTrack.UNSET, halfBack).throttle(), TOLERANCE);
+        }
+
+        @Test
+        void givesTheTwoHalvesDifferentGainsBecauseThereIsMoreThrustAboveHoverThanBelowIt() {
+            float aboveHover =
+                    fly(LookTrack.UNSET, PilotInputSample.lookRelative(0.0, -0.5, 0.0, 0.0))
+                            .throttle();
+            float belowHover =
+                    fly(LookTrack.UNSET, PilotInputSample.lookRelative(0.0, 0.5, 0.0, 0.0)).throttle();
+
+            assertTrue(
+                    aboveHover - (float) HOVER > (float) HOVER - belowHover,
+                    "half stick up must move the throttle further than half stick down");
         }
 
         @Test
         void scalesByTheConfiguredFullScaleSoAnUnnormalisedWishVectorCanBeCorrected() {
             PilotInputMapper scaled =
-                    new PilotInputMapper(new PilotInputMapping(4.0, 2.0 * Math.PI, 2.0 * Math.PI));
+                    new PilotInputMapper(
+                            new PilotInputMapping(4.0, 2.0 * Math.PI, 2.0 * Math.PI), HOVER);
             PilotInputSample fullForwardAtScaleFour =
                     PilotInputSample.lookRelative(0.0, -4.0, 0.0, 0.0);
 
@@ -75,11 +128,142 @@ class PilotInputMapperTest {
                     scaled.map(LookTrack.UNSET, fullForwardAtScaleFour, DT).input().throttle(),
                     TOLERANCE);
             assertEquals(
-                    0.75f,
+                    (float) climbing(0.5),
                     scaled.map(LookTrack.UNSET, PilotInputSample.lookRelative(0.0, -2.0, 0.0, 0.0), DT)
                             .input()
                             .throttle(),
                     TOLERANCE);
+        }
+    }
+
+    @Nested
+    class HoverThrottleArgument {
+
+        @Test
+        void reportsTheHoverThrottleItWasBuiltWithSoCallersNeedNotRestateIt() {
+            assertEquals(HOVER, mapper.hoverThrottle());
+            assertEquals(new ControlInput((float) HOVER, 0f, 0f, 0f), mapper.hovering());
+        }
+
+        @Test
+        void rejectsAnAirframeThatCannotLiftItselfRatherThanClampingOrInvertingTheStick() {
+            double cannotHover = QuadParameters.builder().thrustToWeight(0.5).build().hoverCollective();
+
+            assertTrue(cannotHover > 1.0, "a thrust-to-weight below 1 must not hover under 1.0");
+            assertThrows(
+                    IllegalArgumentException.class,
+                    () -> new PilotInputMapper(PilotInputMapping.DEFAULT, cannotHover));
+        }
+
+        @Test
+        void acceptsHoverAtExactlyFullStickBecauseDescendOnlyIsDegenerateNotBroken() {
+            PilotInputMapper marginal = new PilotInputMapper(PilotInputMapping.DEFAULT, 1.0);
+
+            assertEquals(1f, marginal.hovering().throttle());
+            assertEquals(
+                    1f,
+                    marginal.map(LookTrack.UNSET, forwardStickAt(0.0), DT).input().throttle(),
+                    TOLERANCE);
+            assertEquals(
+                    0.5f,
+                    marginal
+                            .map(LookTrack.UNSET, PilotInputSample.lookRelative(0.0, 0.5, 0.0, 0.0), DT)
+                            .input()
+                            .throttle(),
+                    TOLERANCE);
+        }
+
+        @ParameterizedTest
+        @ValueSource(doubles = {0.0, -0.1, 1.0001, Double.NaN, Double.POSITIVE_INFINITY})
+        void rejectsANonFiniteOrOutOfRangeHoverThrottleBecauseItIsOurConfigNotAPacket(double hover) {
+            assertThrows(
+                    IllegalArgumentException.class,
+                    () -> new PilotInputMapper(PilotInputMapping.DEFAULT, hover));
+        }
+    }
+
+    /**
+     * The tests that would have caught #45. Everything else here compares the mapper against a
+     * restatement of its own arithmetic; these fly the sticks the mapper produces through the real
+     * integrator on the real airframe and assert on <em>altitude</em>, which is the property a pilot
+     * actually complained about.
+     */
+    @Nested
+    class HoldsAltitudeOnTheRealAirframe {
+
+        private static final QuadParameters AIRFRAME = QuadParameters.DEFAULT;
+
+        /** Decision 3's shape: 8 substeps inside a 30 TPS tick. */
+        private static final FlightTick TICK = new FlightTick(new QuadIntegrator(AIRFRAME), 8);
+
+        private static final int ONE_SECOND_OF_TICKS = 30;
+
+        /**
+         * Four orders of magnitude looser than what hover actually achieves — {@code 5e-7} world units
+         * over the second, all of it {@code float} narrowing of the collective — and three orders
+         * tighter than the {@code +14.8} the old mid-scale centre climbed.
+         * {@link #wouldNotHoldAltitudeAtTheOldMidScaleCentre} pins that second half inside the suite,
+         * so this number cannot quietly go vacuous.
+         */
+        private static final double HELD = 0.01;
+
+        private static double altitudeAfterASecondOf(ControlInput input) {
+            FlightState state = FlightState.restingAt(Vec3.ZERO);
+            for (int i = 0; i < ONE_SECOND_OF_TICKS; i++) {
+                state = TICK.advance(state, input, DT);
+            }
+            return state.drone().position().y();
+        }
+
+        @Test
+        void holdsAltitudeForASecondWithTheStickCentred() {
+            ControlInput centre = fly(LookTrack.UNSET, PilotInputSample.EMPTY);
+
+            assertEquals(0.0, altitudeAfterASecondOf(centre), HELD);
+        }
+
+        @Test
+        void wouldNotHoldAltitudeAtTheOldMidScaleCentre() {
+            double climbed = altitudeAfterASecondOf(new ControlInput(0.5f, 0f, 0f, 0f));
+
+            assertTrue(
+                    climbed > 100.0 * HELD,
+                    "mid-scale throttle must be well outside the hover tolerance, or that tolerance"
+                            + " proves nothing; climbed "
+                            + climbed);
+        }
+
+        @Test
+        void climbsOnFullForwardStick() {
+            ControlInput full = fly(LookTrack.UNSET, forwardStickAt(0.0));
+
+            assertEquals(1f, full.throttle(), TOLERANCE);
+            assertTrue(altitudeAfterASecondOf(full) > 10.0, "full throttle must climb hard");
+        }
+
+        @Test
+        void fallsOnFullBackStickBecauseTheMotorsAreOff() {
+            ControlInput cut = fly(LookTrack.UNSET, PilotInputSample.lookRelative(0.0, 1.0, 0.0, 0.0));
+
+            assertEquals(0f, cut.throttle(), TOLERANCE);
+            assertTrue(altitudeAfterASecondOf(cut) < -10.0, "motors off must fall");
+        }
+
+        @Test
+        void holdsAltitudeOnAnAirframeWithADifferentThrustToWeight() {
+            QuadParameters heavy = QuadParameters.builder().thrustToWeight(3.0).build();
+            PilotInputMapper forHeavy =
+                    new PilotInputMapper(PilotInputMapping.DEFAULT, heavy.hoverCollective());
+            FlightTick heavyTick = new FlightTick(new QuadIntegrator(heavy), 8);
+
+            ControlInput centre =
+                    forHeavy.map(LookTrack.UNSET, PilotInputSample.EMPTY, DT).input();
+            FlightState state = FlightState.restingAt(Vec3.ZERO);
+            for (int i = 0; i < ONE_SECOND_OF_TICKS; i++) {
+                state = heavyTick.advance(state, centre, DT);
+            }
+
+            assertEquals(0.0, state.drone().position().y(), HELD);
         }
     }
 
@@ -99,8 +283,9 @@ class PilotInputMapperTest {
         }
 
         @Test
-        void leavesThrottleAtMidStickWhenOnlyTheLateralAxisMoves() {
-            assertEquals(0.5f, fly(LookTrack.UNSET, rightStickAt(0.0)).throttle(), TOLERANCE);
+        void leavesThrottleAtHoverWhenOnlyTheLateralAxisMoves() {
+            assertEquals(
+                    (float) HOVER, fly(LookTrack.UNSET, rightStickAt(0.0)).throttle(), TOLERANCE);
         }
     }
 
@@ -115,7 +300,7 @@ class PilotInputMapperTest {
             assertEquals(0f, forward.yaw(), TOLERANCE);
 
             ControlInput right = fly(LookTrack.UNSET, rightStickAt(yaw));
-            assertEquals(0.5f, right.throttle(), TOLERANCE);
+            assertEquals((float) HOVER, right.throttle(), TOLERANCE);
             assertEquals(1f, right.yaw(), TOLERANCE);
         }
 
@@ -140,7 +325,7 @@ class PilotInputMapperTest {
             ControlInput input = fly(LookTrack.at(heading, 0.0), wishOnly);
 
             assertEquals(1f, input.yaw(), TOLERANCE);
-            assertEquals(0.5f, input.throttle(), TOLERANCE);
+            assertEquals((float) HOVER, input.throttle(), TOLERANCE);
         }
 
         @ParameterizedTest
@@ -153,7 +338,7 @@ class PilotInputMapperTest {
 
             ControlInput input = fly(LookTrack.UNSET, uninterpretable);
 
-            assertEquals(0.5f, input.throttle(), TOLERANCE);
+            assertEquals((float) HOVER, input.throttle(), TOLERANCE);
             assertEquals(0f, input.yaw(), TOLERANCE);
         }
     }
@@ -349,13 +534,13 @@ class PilotInputMapperTest {
     class UntrustedInput {
 
         @Test
-        void restsThrottleAtMidStickOnANonFiniteWishVectorRatherThanCuttingTheMotors() {
+        void restsThrottleAtHoverOnANonFiniteWishVectorRatherThanCuttingTheMotors() {
             PilotInputSample garbage =
                     new PilotInputSample(Double.NaN, Double.POSITIVE_INFINITY, 0.0, 0.0, 0.0);
 
             ControlInput input = fly(LookTrack.at(0.0, 0.0), garbage);
 
-            assertEquals(0.5f, input.throttle(), TOLERANCE);
+            assertEquals((float) HOVER, input.throttle(), TOLERANCE);
             assertEquals(0f, input.yaw(), TOLERANCE);
         }
 
@@ -400,7 +585,7 @@ class PilotInputMapperTest {
 
             ControlInput input = fly(LookTrack.at(Math.PI, 0.0), centredAtSouth);
 
-            assertEquals(new ControlInput(0.5f, 0f, 0f, 0f), input);
+            assertEquals(new ControlInput((float) HOVER, 0f, 0f, 0f), input);
         }
 
         @Test
@@ -410,7 +595,8 @@ class PilotInputMapperTest {
                     () -> mapper.map(null, PilotInputSample.EMPTY, DT));
             assertThrows(
                     IllegalArgumentException.class, () -> mapper.map(LookTrack.UNSET, null, DT));
-            assertThrows(IllegalArgumentException.class, () -> new PilotInputMapper(null));
+            assertThrows(
+                    IllegalArgumentException.class, () -> new PilotInputMapper(null, HOVER));
         }
     }
 
@@ -418,10 +604,10 @@ class PilotInputMapperTest {
     class Centred {
 
         @Test
-        void restsThrottleAtMidStickSoASilentClientHoversRatherThanFalling() {
+        void restsThrottleAtHoverSoASilentClientActuallyHoversRatherThanClimbingOrFalling() {
             PilotInputUpdate update = mapper.centred(LookTrack.at(1.0, 0.5), DT);
 
-            assertEquals(0.5f, update.input().throttle());
+            assertEquals((float) HOVER, update.input().throttle());
             assertTrue(update.input().sticksCentred());
         }
 
@@ -466,7 +652,7 @@ class PilotInputMapperTest {
             ControlInput rightStickOnly =
                     fly(LookTrack.at(0.0, 0.0), PilotInputSample.lookRelative(0.0, 0.0, -0.1, -0.1));
 
-            assertEquals(0.5f, rightStickOnly.throttle(), TOLERANCE);
+            assertEquals((float) HOVER, rightStickOnly.throttle(), TOLERANCE);
             assertEquals(0f, rightStickOnly.yaw(), TOLERANCE);
             assertFalse(rightStickOnly.sticksCentred());
             assertTrue(rightStickOnly.roll() > 0f);

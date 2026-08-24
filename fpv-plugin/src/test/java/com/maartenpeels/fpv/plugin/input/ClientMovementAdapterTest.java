@@ -12,6 +12,7 @@ import com.maartenpeels.fpv.control.LookTrack;
 import com.maartenpeels.fpv.control.PilotInputMapper;
 import com.maartenpeels.fpv.control.PilotInputMapping;
 import com.maartenpeels.fpv.control.PilotInputSample;
+import com.maartenpeels.fpv.flight.QuadParameters;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 
@@ -28,6 +29,9 @@ class ClientMovementAdapterTest {
 
     private static final double TOLERANCE = 1e-5;
     private static final double DT = 1.0 / 30.0;
+
+    /** Where a centred throttle stick sits on the default airframe. Derived, never restated (#45). */
+    private static final float HOVER = (float) QuadParameters.DEFAULT.hoverCollective();
 
     private static ClientMovement packet(Position wishMovement, Direction lookOrientation) {
         ClientMovement packet = new ClientMovement();
@@ -112,7 +116,9 @@ class ClientMovementAdapterTest {
 
         @Test
         void turnsAFullForwardKeypressIntoFullThrottleAtAnyHeading() {
-            PilotInputMapper mapper = new PilotInputMapper(PilotInputMapping.DEFAULT);
+            PilotInputMapper mapper =
+                    new PilotInputMapper(
+                            PilotInputMapping.DEFAULT, QuadParameters.DEFAULT.hoverCollective());
             float heading = 2.25f;
             Position worldWish =
                     new Position(-Math.sin(heading), 0.0, -Math.cos(heading));
@@ -131,7 +137,9 @@ class ClientMovementAdapterTest {
 
         @Test
         void clampsRatherThanThrowingOnAPacketFullOfGarbage() {
-            PilotInputMapper mapper = new PilotInputMapper(PilotInputMapping.DEFAULT);
+            PilotInputMapper mapper =
+                    new PilotInputMapper(
+                            PilotInputMapping.DEFAULT, QuadParameters.DEFAULT.hoverCollective());
             ClientMovement hostile =
                     packet(
                             new Position(Double.NaN, Double.NaN, Double.POSITIVE_INFINITY),
@@ -141,7 +149,7 @@ class ClientMovementAdapterTest {
                     mapper.map(LookTrack.at(0.0, 0.0), ClientMovementAdapter.sample(hostile), DT)
                             .input();
 
-            assertEquals(0.5f, input.throttle(), TOLERANCE);
+            assertEquals(HOVER, input.throttle(), TOLERANCE);
             assertTrue(input.sticksCentred());
         }
     }
