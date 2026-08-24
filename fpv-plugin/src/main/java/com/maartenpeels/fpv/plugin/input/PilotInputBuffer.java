@@ -4,8 +4,10 @@ import com.maartenpeels.fpv.control.PilotInputSample;
 
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * The set of pilots whose input we are collecting, and the slot each one's packets land in.
@@ -34,21 +36,47 @@ import java.util.concurrent.ConcurrentHashMap;
  * not override {@code equals}, it is invalidated on every world switch, and touching one from the
  * netty thread is exactly the ECS access the split exists to prevent.
  */
-public final class PilotInputBuffer {
+/*
+ * Non-final so a test can substitute a failing offer. Nothing inside ClientMovementWatcher.accept
+ * can be made to throw from the outside -- by design, every sanitising rule lives in the core
+ * mapper, which never throws -- so the watcher's error counter would otherwise be the one part of
+ * #49's instrument that is itself unverifiable. An instrument you cannot test is what #47 already
+ * had.
+ */
+public class PilotInputBuffer {
 
     @Nonnull
     private final ConcurrentHashMap<UUID, PilotInputSlot> slots = new ConcurrentHashMap<>();
 
     /**
+     * Offers that found a slot, and offers that did not. Netty writes, the world thread reads.
+     *
+     * <p>These exist because the drop is <em>correct behaviour that looks exactly like a bug</em>.
+     * {@link #offer} writing existing slots only is what keeps this map bounded, but it means a
+     * pilot whose key does not match produces no log line, no exception and no counter — #47 spent
+     * four flights indistinguishable from "the client is not sending". Separating "nothing arrived"
+     * from "everything arrived and was thrown away" is the whole point of #49, and it needs exactly
+     * these two numbers.
+     */
+    @Nonnull
+    private final AtomicLong offersAccepted = new AtomicLong();
+    @Nonnull
+    private final AtomicLong offersDropped = new AtomicLong();
+
+    /**
      * Records a sample against a pilot, if that pilot is flying. <b>Netty thread.</b>
      *
      * <p>Silently drops input for anyone without an open slot, which is every player who is not
-     * currently flying a drone. That is the normal case, not an error.
+     * currently flying a drone. That is the normal case, not an error — but it is now counted, see
+     * {@link #offersDropped()}.
      */
     public void offer(@Nonnull UUID pilotId, @Nonnull PilotInputSample sample) {
         PilotInputSlot slot = this.slots.get(pilotId);
         if (slot != null) {
             slot.offer(sample);
+            this.offersAccepted.incrementAndGet();
+        } else {
+            this.offersDropped.incrementAndGet();
         }
     }
 
@@ -81,5 +109,26 @@ public final class PilotInputBuffer {
     /** How many pilots are being collected for. Exists so a test can assert the map does not grow. */
     public int size() {
         return this.slots.size();
+    }
+
+    /** Offers that landed in a slot, since startup. */
+    public long offersAccepted() {
+        return this.offersAccepted.get();
+    }
+
+    /** Offers discarded for want of a slot, since startup. */
+    public long offersDropped() {
+        return this.offersDropped.get();
+    }
+
+    /**
+     * The pilots with an open slot, as a snapshot.
+     *
+     * <p>For printing beside the UUID the watcher is offering on: if a key mismatch ever does occur,
+     * the two lists side by side end the question immediately, which reading alone could not do.
+     */
+    @Nonnull
+    public Set<UUID> openKeys() {
+        return Set.copyOf(this.slots.keySet());
     }
 }

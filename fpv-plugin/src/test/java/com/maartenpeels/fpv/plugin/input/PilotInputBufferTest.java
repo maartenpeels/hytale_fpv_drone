@@ -10,6 +10,7 @@ import com.maartenpeels.fpv.control.PilotInputMapper;
 import com.maartenpeels.fpv.control.PilotInputMapping;
 import com.maartenpeels.fpv.control.PilotInputSample;
 import com.maartenpeels.fpv.flight.QuadParameters;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -145,6 +146,78 @@ class PilotInputBufferTest {
 
             float throttle = buffer.slotOf(pilot).nextInput(MAPPER, 1.0 / 30.0).throttle();
             assertTrue(throttle > 0.9f, "full forward should read as full throttle, was " + throttle);
+        }
+    }
+
+    /**
+     * #49's instrument. The drop in {@link PilotInputBuffer#offer} is correct behaviour that is
+     * indistinguishable from a bug without these counters — which is what cost #47 four flights.
+     */
+    @Nested
+    class Instrumentation {
+
+        @Test
+        void countsAnOfferThatFoundASlotSeparatelyFromOneThatDidNot() {
+            PilotInputBuffer buffer = new PilotInputBuffer();
+            UUID flying = UUID.randomUUID();
+            buffer.open(flying);
+
+            buffer.offer(flying, forward());
+            buffer.offer(UUID.randomUUID(), forward());
+            buffer.offer(UUID.randomUUID(), forward());
+
+            assertEquals(1, buffer.offersAccepted());
+            assertEquals(2, buffer.offersDropped());
+        }
+
+        @Test
+        void reportsBothCountersAtZeroBeforeAnyPacketSoSilenceIsDistinguishableFromDropping() {
+            // accepted=0 dropped=0 means nothing arrived at all; accepted=0 dropped>0 means
+            // everything arrived and was thrown away. Those need different fixes.
+            PilotInputBuffer buffer = new PilotInputBuffer();
+
+            assertEquals(0, buffer.offersAccepted());
+            assertEquals(0, buffer.offersDropped());
+        }
+
+        @Test
+        void listsTheOpenKeysSoAMismatchCanBeSeenBesideThePilotsUuid() {
+            PilotInputBuffer buffer = new PilotInputBuffer();
+            UUID flying = UUID.randomUUID();
+            buffer.open(flying);
+
+            assertEquals(Set.of(flying), buffer.openKeys());
+        }
+
+        @Test
+        void stopsCountingAcceptedOnceTheSlotIsClosed() {
+            PilotInputBuffer buffer = new PilotInputBuffer();
+            UUID pilot = UUID.randomUUID();
+            buffer.open(pilot);
+            buffer.offer(pilot, forward());
+            buffer.close(pilot);
+
+            buffer.offer(pilot, forward());
+
+            assertEquals(1, buffer.offersAccepted());
+            assertEquals(1, buffer.offersDropped());
+            assertEquals(Set.of(), buffer.openKeys());
+        }
+
+        @Test
+        void countsPerOfferRatherThanPerSlotSoAQuietClientIsVisible() {
+            // The slot only holds the newest sample, so slot state alone cannot say whether one
+            // packet arrived or a thousand. The counter is what makes packet *rate* observable.
+            PilotInputBuffer buffer = new PilotInputBuffer();
+            UUID pilot = UUID.randomUUID();
+            buffer.open(pilot);
+
+            for (int i = 0; i < 5; i++) {
+                buffer.offer(pilot, forward());
+            }
+
+            assertEquals(5, buffer.offersAccepted());
+            assertEquals(5, buffer.slotOf(pilot).offers());
         }
     }
 }
