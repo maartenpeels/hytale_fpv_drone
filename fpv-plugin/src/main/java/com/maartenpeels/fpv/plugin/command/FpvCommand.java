@@ -30,6 +30,7 @@ public class FpvCommand extends AbstractCommand {
         // this.subCommands with no dependence on the command's class. So /fpv keeps its own config
         // report and still dispatches. Established in #28.
         this.addSubCommand(new FpvCameraCommand(plugin));
+        this.addSubCommand(new FpvInputCommand(plugin));
     }
 
     @Nullable

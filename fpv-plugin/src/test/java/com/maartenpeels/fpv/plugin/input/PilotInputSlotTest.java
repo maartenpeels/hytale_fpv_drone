@@ -1,6 +1,7 @@
 package com.maartenpeels.fpv.plugin.input;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.maartenpeels.fpv.control.ControlInput;
@@ -285,6 +286,103 @@ class PilotInputSlotTest {
             ControlInput resumed = slot.nextInput(MAPPER, TICK_30_TPS);
 
             assertTrue(resumed.throttle() > 0.9f, "throttle should obey the pilot again, was " + resumed);
+        }
+    }
+
+    /**
+     * #49's world-side instrument: what {@code /fpv input status} reads off a live slot.
+     *
+     * <p>Post-#45 every failure mode ends at {@code hovering()}, so a stationary drone is consistent
+     * with "no slot", "no packets" and "empty packets" alike. These readings are what tell them
+     * apart, so they are asserted rather than assumed.
+     */
+    @Nested
+    class Instrumentation {
+
+        @Test
+        void reportsNoLastInputBeforeTheFirstTickSoAnUntickedDroneIsIdentifiable() {
+            // A registered-but-not-running AdvanceFlight and a dead input path both leave a drone
+            // motionless. Only this null separates them.
+            PilotInputSlot slot = new PilotInputSlot();
+
+            assertNull(slot.lastInput());
+        }
+
+        @Test
+        void reportsTheSticksItLastHandedToTheIntegrator() {
+            PilotInputSlot slot = new PilotInputSlot();
+            slot.offer(PilotInputSample.lookRelative(0.0, -1.0, 0.0, 0.0));
+
+            ControlInput returned = slot.nextInput(MAPPER, TICK_30_TPS);
+
+            assertEquals(returned, slot.lastInput());
+        }
+
+        @Test
+        void agesTheHeldIntervalOnQuietTicksAndResetsItOnAFreshPacket() {
+            // This is the number that distinguishes "input stopped" from "input never started",
+            // which is the distinction the staleness cutoff makes invisible in flight.
+            PilotInputSlot slot = new PilotInputSlot();
+            slot.offer(PilotInputSample.lookRelative(0.0, -1.0, 0.0, 0.0));
+            slot.nextInput(MAPPER, TICK_30_TPS);
+            assertEquals(0.0, slot.heldSeconds(), 1e-12);
+
+            quietTick(slot);
+            quietTick(slot);
+            assertEquals(2.0 * TICK_30_TPS, slot.heldSeconds(), 1e-12);
+
+            slot.offer(PilotInputSample.lookRelative(0.0, -1.0, 0.0, 0.0));
+            slot.nextInput(MAPPER, TICK_30_TPS);
+            assertEquals(0.0, slot.heldSeconds(), 1e-12);
+        }
+
+        @Test
+        void crossesTheStalenessCutoffTheSameTickTheSticksGoCentred() {
+            // Pins the reported number against the behaviour it is meant to explain: if these two
+            // could disagree, the instrument would exonerate the exact tick that misbehaved.
+            PilotInputSlot slot = new PilotInputSlot();
+            slot.offer(PilotInputSample.lookRelative(0.0, -1.0, 0.0, 0.0));
+            slot.nextInput(MAPPER, TICK_30_TPS);
+
+            ControlInput input;
+            do {
+                input = quietTick(slot);
+            } while (slot.heldSeconds() <= PilotInputSlot.MAX_HELD_SECONDS);
+
+            assertEquals(HOVER, input.throttle(), 1e-6);
+        }
+
+        @Test
+        void countsOffersSoAQuietClientIsDistinguishableFromASilentOne() {
+            PilotInputSlot slot = new PilotInputSlot();
+
+            assertEquals(0, slot.offers());
+
+            slot.offer(PilotInputSample.lookRelative(0.0, -1.0, 0.0, 0.0));
+            slot.offer(PilotInputSample.lookRelative(0.0, -1.0, 0.0, 0.0));
+
+            // Two offers, one surviving sample: latest-wins means the count is the only record.
+            assertEquals(2, slot.offers());
+        }
+
+        @Test
+        void reportsTheSampleTheMapperActuallyConsumed() {
+            PilotInputSlot slot = new PilotInputSlot();
+            PilotInputSample sent = PilotInputSample.lookRelative(0.25, -0.5, 1.0, 0.5);
+            slot.offer(sent);
+
+            slot.nextInput(MAPPER, TICK_30_TPS);
+
+            assertEquals(sent, slot.held());
+        }
+
+        @Test
+        void reportsAnEmptyHeldSampleBeforeAnyPacketArrives() {
+            // An all-zero wish with NaN look is exactly what an empty ClientMovement produces, so
+            // this is the reading that says "packets are arriving with nothing in them".
+            PilotInputSlot slot = new PilotInputSlot();
+
+            assertEquals(PilotInputSample.EMPTY, slot.held());
         }
     }
 }

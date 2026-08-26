@@ -9,6 +9,8 @@ import com.hypixel.hytale.server.core.universe.PlayerRef;
 
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
+import java.util.UUID;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * Reads packet 108 off the wire and drops it in the flying pilot's input slot.
@@ -56,6 +58,21 @@ public final class ClientMovementWatcher implements PlayerPacketWatcher {
     @Nonnull
     private final PilotInputBuffer buffer;
 
+    /**
+     * The netty-side half of #49's instrument. Written here, read by {@code /fpv input status}.
+     *
+     * <p>{@code AtomicLong} rather than plain counters because {@link #accept} runs on netty threads
+     * and the command that reads them runs on the world thread. The cost is irrelevant next to
+     * deserialising a packet; the alternative — an unsynchronised long — would report numbers a
+     * human would then reason from, which is worse than reporting nothing.
+     */
+    @Nonnull
+    private final AtomicLong inboundPackets = new AtomicLong();
+    @Nonnull
+    private final AtomicLong movementPackets = new AtomicLong();
+    @Nonnull
+    private final AtomicLong watcherErrors = new AtomicLong();
+
     public ClientMovementWatcher(@Nonnull PilotInputBuffer buffer) {
         this.buffer = buffer;
     }
@@ -85,11 +102,58 @@ public final class ClientMovementWatcher implements PlayerPacketWatcher {
 
     @Override
     public void accept(PlayerRef playerRef, Packet packet) {
-        if (playerRef == null || !(packet instanceof ClientMovement movement)) {
-            return;
+        accept(playerRef == null ? null : playerRef.getUuid(), packet);
+    }
+
+    /**
+     * All of {@link #accept} bar the single {@code PlayerRef} field read, so that everything with
+     * behaviour in it is reachable from a plain JVM test.
+     *
+     * <p>The harness cannot construct a {@code PlayerRef} — the constraint that made #19 introduce
+     * its {@code PilotSink} seam, and the reason #47's key-mismatch hypothesis survived four flights
+     * unfalsified. Splitting here means the counters, the packet-type filter and the error path are
+     * all under test; only "which UUID a connection reports" is not, and that is now pinned by
+     * reading instead ({@code Universe.addPlayer} builds {@code PlayerRef} and
+     * {@code UUIDComponent} from the same {@code auth.getUuid()}).
+     */
+    void accept(@Nullable UUID pilotId, @Nullable Packet packet) {
+        this.inboundPackets.incrementAndGet();
+        try {
+            if (pilotId == null || !(packet instanceof ClientMovement movement)) {
+                return;
+            }
+            this.movementPackets.incrementAndGet();
+            // Converted to an immutable sample immediately: the packet object belongs to the netty
+            // pipeline and nothing of ours should outlive this call holding a reference to it.
+            this.buffer.offer(pilotId, ClientMovementAdapter.sample(movement));
+        } catch (Throwable t) {
+            // Counted and rethrown, not swallowed. PacketAdapters.handle logs it at SEVERE
+            // (`PacketAdapters.java:104-106`) and carries on, so behaviour is unchanged; what
+            // changes is that a watcher throwing on every packet is no longer indistinguishable
+            // from one that never ran. #49 exists because that distinction was unavailable.
+            this.watcherErrors.incrementAndGet();
+            throw t;
         }
-        // Converted to an immutable sample immediately: the packet object belongs to the netty
-        // pipeline and nothing of ours should outlive this call holding a reference to it.
-        this.buffer.offer(playerRef.getUuid(), ClientMovementAdapter.sample(movement));
+    }
+
+    /**
+     * Inbound packets of <em>any</em> type this watcher has seen.
+     *
+     * <p>Zero means the watcher is not in the pipeline at all — a registration or hot-reload fault,
+     * not an input-mapping one. Non-zero with {@link #movementPackets()} at zero means the pipeline
+     * is fine and the client is genuinely not sending packet 108.
+     */
+    public long inboundPackets() {
+        return this.inboundPackets.get();
+    }
+
+    /** {@code ClientMovement} packets seen, i.e. how often the input path actually ran. */
+    public long movementPackets() {
+        return this.movementPackets.get();
+    }
+
+    /** Throws out of {@link #accept}. Any non-zero value here invalidates the counts below it. */
+    public long watcherErrors() {
+        return this.watcherErrors.get();
     }
 }

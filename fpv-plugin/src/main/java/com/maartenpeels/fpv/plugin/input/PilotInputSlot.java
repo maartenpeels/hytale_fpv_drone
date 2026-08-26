@@ -8,6 +8,7 @@ import com.maartenpeels.fpv.control.PilotInputUpdate;
 
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 
 /**
@@ -92,6 +93,22 @@ public final class PilotInputSlot {
     private double heldSeconds;
 
     /**
+     * The sticks {@link #nextInput} last answered, for {@code /fpv input status}. <b>Volatile.</b>
+     *
+     * <p>Written by the world thread in {@link #nextInput}. Volatile because the read is a
+     * diagnostic that must be correct rather than fast, and because a stale read here would be
+     * reported to a human as fact — the one thing an instrument built to settle #47 cannot do.
+     * {@code null} until the first tick, which is itself the answer to "is this drone being
+     * ticked at all".
+     */
+    @Nullable
+    private volatile ControlInput lastInput;
+
+    /** Offers this slot has taken, since it opened. Netty writes, world thread reads. */
+    @Nonnull
+    private final AtomicLong offers = new AtomicLong();
+
+    /**
      * Records the newest sample from this pilot. <b>Netty thread.</b>
      *
      * <p>Latest wins: an unread sample is overwritten rather than queued, because a stick position
@@ -102,6 +119,7 @@ public final class PilotInputSlot {
      */
     public void offer(@Nonnull PilotInputSample sample) {
         this.pending.set(sample);
+        this.offers.incrementAndGet();
     }
 
     /**
@@ -129,6 +147,7 @@ public final class PilotInputSlot {
         }
 
         this.track = update.track();
+        this.lastInput = update.input();
         return update.input();
     }
 
@@ -136,6 +155,39 @@ public final class PilotInputSlot {
     @Nonnull
     public LookTrack track() {
         return this.track;
+    }
+
+    /**
+     * The sticks last handed to the integrator, or {@code null} if this slot has never been ticked.
+     *
+     * <p>The end of the input chain, and so the reading that says whether a dead-feeling drone is
+     * dead upstream of the mapper or inside it.
+     */
+    @Nullable
+    public ControlInput lastInput() {
+        return this.lastInput;
+    }
+
+    /**
+     * Seconds of ticking since the last fresh packet. <b>World thread.</b>
+     *
+     * <p>Compare against {@link #MAX_HELD_SECONDS}: above it the slot is feeding the integrator
+     * centred sticks, which post-#45 is a stationary hover and therefore looks exactly like an
+     * un-ticked drone. Making that visible is the reason this accessor exists.
+     */
+    public double heldSeconds() {
+        return this.heldSeconds;
+    }
+
+    /** Offers this slot has taken since it opened. */
+    public long offers() {
+        return this.offers.get();
+    }
+
+    /** The last sample the mapper consumed. {@code EMPTY} until a packet has arrived. */
+    @Nonnull
+    public PilotInputSample held() {
+        return this.held;
     }
 
     /** Whether a packet is waiting to be consumed. Test seam; not a scheduling signal. */

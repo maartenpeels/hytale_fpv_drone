@@ -80,6 +80,15 @@ public class FPVDrone extends JavaPlugin {
     @Nullable
     private PacketFilter movementWatcher;
 
+    /**
+     * The watcher itself, kept only so {@code /fpv input status} can read its counters.
+     *
+     * <p>Separate from {@link #movementWatcher} because that field is the deregistration key — the
+     * {@code PacketFilter} wrapper — and the wrapper is a lambda with no counters on it.
+     */
+    @Nullable
+    private ClientMovementWatcher movementWatcherInstance;
+
     public FPVDrone(@Nonnull JavaPluginInit init) {
         super(init);
         this.config = this.withConfig("fpv_drone", FpvConfig.CODEC);
@@ -109,13 +118,16 @@ public class FPVDrone extends JavaPlugin {
      */
     @Override
     protected void start() {
-        this.movementWatcher = new ClientMovementWatcher(this.pilotInputs).register();
+        ClientMovementWatcher watcher = new ClientMovementWatcher(this.pilotInputs);
+        this.movementWatcher = watcher.register();
+        this.movementWatcherInstance = watcher;
     }
 
     @Override
     protected void shutdown() {
         ClientMovementWatcher.deregister(this.movementWatcher);
         this.movementWatcher = null;
+        this.movementWatcherInstance = null;
     }
 
     /**
@@ -226,6 +238,23 @@ public class FPVDrone extends JavaPlugin {
     @Nonnull
     public Config<FpvConfig> getFpvConfig() {
         return this.config;
+    }
+
+    /** The pilot input slots, for {@code /fpv input status}. */
+    @Nonnull
+    public PilotInputBuffer getPilotInputs() {
+        return this.pilotInputs;
+    }
+
+    /**
+     * The inbound packet watcher, or {@code null} before {@code start()} has run.
+     *
+     * <p>A {@code null} here is itself diagnostic: it means the plugin never reached {@code ENABLED},
+     * so no input could possibly have arrived.
+     */
+    @Nullable
+    public ClientMovementWatcher getMovementWatcher() {
+        return this.movementWatcherInstance;
     }
 
     /**
